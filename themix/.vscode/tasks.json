@@ -1,0 +1,29 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "rmlog0",
+            "command": "rm",
+            "args": ["${workspaceFolder:themix}/server/cmd/logfile/server0"],
+            "type": "shell"
+        },
+        {
+            "label": "rmlog1",
+            "command": "rm",
+            "args": ["${workspaceFolder:themix}/server/cmd/logfile/server1"],
+            "type": "shell"
+        },
+        {
+            "label": "rmlog2",
+            "command": "rm",
+            "args": ["${workspaceFolder:themix}/server/cmd/logfile/server2"],
+            "type": "shell"
+        },
+        {
+            "label": "rmlog3",
+            "command": "rm",
+            "args": ["${workspaceFolder:themix}/server/cmd/logfile/server3"],
+            "type": "shell"
+        }
+    ]
+}
