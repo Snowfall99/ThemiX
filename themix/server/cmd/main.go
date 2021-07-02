@@ -73,6 +73,7 @@ func main() {
 
 	addrs := []string{}
 	lg, err := newLogger(int(*id))
+	defer lg.Sync()
 
 	if err != nil {
 		fmt.Println("zap logger initialization failed: ", err)
@@ -91,6 +92,9 @@ func main() {
 				break
 			}
 			prt, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Println(err)
+			}
 			addr = "http://" + removeLastRune(addr) + ":" + removeLastRune(prt)
 			addrs = append(addrs, addr)
 		}

@@ -28,11 +28,11 @@ func main() {
 	flag.Parse()
 
 	// Crypto setup
-	err := bls.GenerateBlsKey("../../", *n, *th)
+	err := bls.GenerateBlsKey("./", *n, *th)
 	if err != nil {
 		fmt.Println(err)
 	}
-	_, _, err = bls.LoadBlsKey("../../", *n, *th)
+	_, _, err = bls.LoadBlsKey("./", *n, *th)
 	if err != nil {
 		fmt.Println(err)
 	}
