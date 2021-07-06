@@ -45,7 +45,7 @@ func newLogger(id int) (*zap.Logger, error) {
 		"log/server" + strconv.Itoa(id),
 	}
 	cfg.Sampling = nil
-	cfg.Level = zap.NewAtomicLevelAt(zapcore.FatalLevel)
+	cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
 	return cfg.Build()
 }
 
