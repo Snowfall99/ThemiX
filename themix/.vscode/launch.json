@@ -68,7 +68,7 @@
                 "--keys",
                 "${workspaceFolder:themix}/../crypto",
                 "--cluster",
-                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230"]
+                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230,http://127.0.0.1:11240"]
         },
         {
             "name": "themix1",
@@ -84,7 +84,7 @@
                 "--keys",
                 "${workspaceFolder:themix}/../crypto",
                 "--cluster",
-                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230"]
+                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230,http://127.0.0.1:11240"]
         },
         {
             "name": "themix2",
@@ -100,7 +100,7 @@
                 "--keys",
                 "${workspaceFolder:themix}/../crypto",
                 "--cluster",
-                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230"]
+                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230,http://127.0.0.1:11240"]
         },
         {
             "name": "themix3",
@@ -116,13 +116,33 @@
                 "--keys",
                 "${workspaceFolder:themix}/../crypto",
                 "--cluster",
-                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230"]
+                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230,http://127.0.0.1:11240"]
+        },
+        {
+            "name": "themix4",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            // "preLaunchTask": "rmlog3",
+            "program": "${workspaceFolder:themix}/server/cmd/main.go",
+            "args": ["--id",
+                "4",
+                "--port",
+                "11240",
+                "--keys",
+                "${workspaceFolder:themix}/../crypto",
+                "--cluster",
+                "http://127.0.0.1:11200,http://127.0.0.1:11210,http://127.0.0.1:11220,http://127.0.0.1:11230,http://127.0.0.1:11240"]
         },
     ],
     "compounds": [
         {
           "name": "4-replica themix",
           "configurations": ["themix0", "themix1", "themix2", "themix3"]
+        },
+        {
+            "name": "5-replica themix",
+            "configurations": ["themix0", "themix1", "themix2", "themix3", "themix4"]
         },
         {
             "name": "themix benchmark test",
