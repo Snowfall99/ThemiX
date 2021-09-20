@@ -17,6 +17,7 @@ package server
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"sync"
 	"time"
 
@@ -297,18 +298,18 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if inst.round == msg.Round {
 			return inst.isReadyToEnterNewRound()
 		}
-	// case message.COLLECTION:
-	// 	if msg.Collection == nil {
-	// 		fmt.Println("Nil collection")
-	// 	}
-	// 	for _, m := range msg.Collection {
-	// 		if m != nil {
-	// 			switch m.Type {
-	// 			case message.READY:
-	// 				inst.readyMsgs[m.From] = m
-	// 			}
-	// 		}
-	// 	}
+	case message.COLLECTION:
+		if msg.Collection == nil {
+			fmt.Println("Nil collection")
+		}
+		for _, m := range msg.Collection {
+			if m != nil {
+				switch m.Type {
+				case message.READY:
+					inst.readyMsgs[m.From] = m
+				}
+			}
+		}
 	default:
 		return false, false
 	}
