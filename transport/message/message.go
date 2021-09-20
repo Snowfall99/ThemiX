@@ -27,23 +27,25 @@ type MessageType uint8
 //	or in optimal case where f+1 BVAL matching BVAL messages are received from SG
 // COIN is coin message
 const (
-	VAL   MessageType = 0
-	ECHO  MessageType = 1
-	READY MessageType = 2
-	BVAL  MessageType = 3
-	AUX   MessageType = 4
-	COIN  MessageType = 5
+	VAL        MessageType = 0
+	ECHO       MessageType = 1
+	READY      MessageType = 2
+	BVAL       MessageType = 3
+	AUX        MessageType = 4
+	COIN       MessageType = 5
+	COLLECTION MessageType = 6
 )
 
 // ConsMessage is the message type exchanged for achieving consensus
 type ConsMessage struct {
-	Type      MessageType
-	Proposer  info.IDType
-	From      info.IDType
-	Round     uint8
-	Sequence  uint64
-	Signature []byte
-	Content   []byte
+	Type       MessageType
+	Proposer   info.IDType
+	From       info.IDType
+	Round      uint8
+	Sequence   uint64
+	Signature  []byte
+	Content    []byte
+	Collection []*ConsMessage
 }
 
 // Request is the message sent from client to servers
@@ -69,6 +71,8 @@ func (t MessageType) GetName() string {
 		return "AUX"
 	case 5:
 		return "COIN"
+	case 6:
+		return "COLLECTION"
 	}
 	return "UNKNOWN"
 }

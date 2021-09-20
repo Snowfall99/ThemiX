@@ -103,7 +103,7 @@ func main() {
 
 	fmt.Printf("%d %s %d\n", *id, addrs, len(addrs))
 
-	bls, err := bls.InitBLS(*keys, len(addrs), int(len(addrs)/3+1), int(*id))
+	bls, err := bls.InitBLS(*keys, len(addrs), int(len(addrs)/2+1), int(*id))
 
 	if err != nil {
 		fmt.Println(err)
