@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ var maxround = 30
 type instance struct {
 	tp           transport.Transport
 	blsSig       *bls.BlsSig
+	fastRBC      bool
 	hasEcho      bool
 	hasVotedZero bool
 	hasVotedOne  bool
@@ -48,6 +50,7 @@ type instance struct {
 	n            uint64
 	thld         uint64
 	f            uint64
+	fastgroup    uint64
 	round        uint8
 	numEcho      uint64
 	numReady     uint64
@@ -60,6 +63,7 @@ type instance struct {
 	numCoin      []uint64
 	proposal     *message.ConsMessage
 	valMsgs      []*message.ConsMessage
+	echoMsgs     []*message.ConsMessage
 	readyMsgs    []*message.ConsMessage
 	bvalZeroMsgs [][]*message.ConsMessage
 	bvalOneMsgs  [][]*message.ConsMessage
@@ -84,6 +88,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		thld:         thld,
 		f:            n / 2,
 		valMsgs:      make([]*message.ConsMessage, n),
+		echoMsgs:     make([]*message.ConsMessage, n),
 		readyMsgs:    make([]*message.ConsMessage, n),
 		bvalZeroMsgs: make([][]*message.ConsMessage, maxround),
 		bvalOneMsgs:  make([][]*message.ConsMessage, maxround),
@@ -99,6 +104,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		numCon:      make([]uint64, maxround),
 		numCoin:     make([]uint64, maxround),
 		lock:        sync.Mutex{}}
+	inst.fastgroup = uint64(math.Ceil(3*float64(n)/4)) + 1
 	for i := 0; i < maxround; i++ {
 		// inst.bvalMsgs[i] = make([]*transport.ConsMessage, n)
 		// inst.auxMsgs[i] = make([]*transport.ConsMessage, n)
@@ -156,6 +162,19 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				Content:  hash})
 			inst.hasEcho = true
 			inst.tp.Broadcast(msg)
+		}
+		inst.isReadyToSendCoin()
+		return inst.isReadyToEnterNewRound()
+
+	/*
+	 * upon receiving f+1 ECHO(v), and tmrR expires
+	 * if have not received any VAL(v')src (v' != v) then
+	 * broadcast READY(v)i
+	 */
+	case message.ECHO:
+		inst.numEcho++
+		inst.echoMsgs[msg.From] = msg
+		if inst.numEcho == inst.f+1 {
 			// start tmrR
 			inst.tmrR = *time.NewTimer(2 * time.Second)
 			go func() {
@@ -176,28 +195,41 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 						Type:     message.READY,
 						Proposer: msg.Proposer,
 						Sequence: msg.Sequence,
-						Content:  hash,
+						Content:  msg.Content,
 					})
 				}
 			}()
 		}
-		inst.isReadyToSendCoin()
-		return inst.isReadyToEnterNewRound()
-
-	/*
-	 * upon receiving f+1 ECHO(v), and tmrR expires
-	 * if have not received any VAL(v')src (v' != v) then
-	 * broadcast READY(v)i
-	 */
-	case message.ECHO:
-		inst.numEcho++
-		// if inst.numEcho == inst.thld {
-		// 	inst.tp.Broadcast(&message.ConsMessage{
-		// 		Type:     message.READY,
-		// 		Proposer: msg.Proposer,
-		// 		Sequence: msg.Sequence,
-		// 		Content:  msg.Content})
-		// }
+		/*
+		 * upon receiving ECHO(v) from fast group
+		 * broadcast ECHO(v) sent by fast group
+		 * deliver(v)
+		 */
+		if inst.numEcho == inst.fastgroup && inst.round == 0 {
+			inst.fastRBC = true
+			var collection []*message.ConsMessage
+			for _, m := range inst.echoMsgs {
+				if m != nil {
+					collection = append(collection, m)
+				}
+			}
+			inst.tp.Broadcast(&message.ConsMessage{
+				Type:       message.COLLECTION,
+				Proposer:   msg.Proposer,
+				Round:      inst.round,
+				Sequence:   msg.Sequence,
+				Collection: collection,
+			})
+			if !inst.hasVotedZero && !inst.hasVotedOne {
+				inst.hasVotedOne = true
+				inst.tp.Broadcast(&message.ConsMessage{
+					Type:     message.BVAL,
+					Proposer: msg.Proposer,
+					Sequence: msg.Sequence,
+					Content:  []byte{1}}) // vote 1
+			}
+			return inst.isReadyToEnterNewRound()
+		}
 
 	/*
 	 * upon receiving f+1 READY(v)
@@ -432,14 +464,28 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			if m != nil {
 				switch m.Type {
 				case message.READY:
+					if inst.readyMsgs[m.From] == nil {
+						inst.numReady++
+					}
 					inst.readyMsgs[m.From] = m
 				case message.BVAL:
 					switch m.Content[0] {
 					case 0:
+						if inst.bvalZeroMsgs[msg.Round][m.From] == nil {
+							inst.numBvalZero[msg.Round]++
+						}
 						inst.bvalZeroMsgs[msg.Round][m.From] = m
 					case 1:
+						if inst.bvalOneMsgs[msg.Round][m.From] == nil {
+							inst.numBvalOne[msg.Round]++
+						}
 						inst.bvalOneMsgs[msg.Round][m.From] = m
 					}
+				case message.ECHO:
+					if inst.echoMsgs[m.From] == nil {
+						inst.numEcho++
+					}
+					inst.echoMsgs[m.From] = m
 				}
 			}
 		}
@@ -480,7 +526,7 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		inst.numCoin[inst.round] > inst.f &&
 		inst.numCon[inst.round] > inst.f &&
 		inst.proposal != nil &&
-		inst.numReady >= inst.thld &&
+		(inst.numReady >= inst.thld || inst.fastRBC) &&
 		inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld &&
 		((inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld) ||
 			(inst.zeroEndorsed && inst.numAuxZero[inst.round] >= inst.thld) ||
