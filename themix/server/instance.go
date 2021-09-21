@@ -56,31 +56,37 @@ type instance struct {
 	numBvalOne   []uint64
 	numAuxZero   []uint64
 	numAuxOne    []uint64
+	numCon       []uint64
 	numCoin      []uint64
 	proposal     *message.ConsMessage
 	valMsgs      []*message.ConsMessage
 	readyMsgs    []*message.ConsMessage
+	bvalZeroMsgs [][]*message.ConsMessage
+	bvalOneMsgs  [][]*message.ConsMessage
 	// echoMsgs    []*transport.ConsMessage
 	// readyMsgs   []*transport.ConsMessage
 	// bvalMsgs    [][]*transport.ConsMessage
 	// auxMsgs     [][]*transport.ConsMessage
 	coinMsgs [][]*message.ConsMessage
 	tmrR     time.Timer
+	tmrB     time.Timer
 	lg       *zap.Logger
 	lock     sync.Mutex
 }
 
 func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, sequence uint64, n uint64, thld uint64) *instance {
 	inst := &instance{
-		lg:        lg,
-		tp:        tp,
-		blsSig:    blsSig,
-		sequence:  sequence,
-		n:         n,
-		thld:      thld,
-		f:         n / 3,
-		valMsgs:   make([]*message.ConsMessage, n),
-		readyMsgs: make([]*message.ConsMessage, n),
+		lg:           lg,
+		tp:           tp,
+		blsSig:       blsSig,
+		sequence:     sequence,
+		n:            n,
+		thld:         thld,
+		f:            n / 3,
+		valMsgs:      make([]*message.ConsMessage, n),
+		readyMsgs:    make([]*message.ConsMessage, n),
+		bvalZeroMsgs: make([][]*message.ConsMessage, maxround),
+		bvalOneMsgs:  make([][]*message.ConsMessage, maxround),
 		// echoMsgs:    make([]*transport.ConsMessage, n),
 		// readyMsgs:   make([]*transport.ConsMessage, n),
 		// bvalMsgs:    make([][]*transport.ConsMessage, maxround),
@@ -90,11 +96,14 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		numBvalOne:  make([]uint64, maxround),
 		numAuxZero:  make([]uint64, maxround),
 		numAuxOne:   make([]uint64, maxround),
+		numCon:      make([]uint64, maxround),
 		numCoin:     make([]uint64, maxround),
 		lock:        sync.Mutex{}}
 	for i := 0; i < maxround; i++ {
 		// inst.bvalMsgs[i] = make([]*transport.ConsMessage, n)
 		// inst.auxMsgs[i] = make([]*transport.ConsMessage, n)
+		inst.bvalZeroMsgs[i] = make([]*message.ConsMessage, n)
+		inst.bvalOneMsgs[i] = make([]*message.ConsMessage, n)
 		inst.coinMsgs[i] = make([]*message.ConsMessage, n)
 	}
 	return inst
@@ -127,6 +136,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	}
 
 	switch msg.Type {
+
 	/*
 	 * upon receiving VAL(v)src
 	 * if have not sent any ECHO(*) then
@@ -173,8 +183,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		inst.isReadyToSendCoin()
 		return inst.isReadyToEnterNewRound()
+
+	/*
+	 * upon receiving f+1 ECHO(v), and tmrR expires
+	 * if have not received any VAL(v')src (v' != v) then
+	 * broadcast READY(v)i
+	 */
 	case message.ECHO:
-		// inst.echoMsgs[msg.From] = msg
 		inst.numEcho++
 		// if inst.numEcho == inst.thld {
 		// 	inst.tp.Broadcast(&message.ConsMessage{
@@ -183,21 +198,15 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		// 		Sequence: msg.Sequence,
 		// 		Content:  msg.Content})
 		// }
+
+	/*
+	 * upon receiving f+1 READY(v)
+	 * broadcast f+1 READY(v)
+	 * deliver(v)
+	 */
 	case message.READY:
-		// inst.readyMsgs[msg.From] = msg
 		inst.numReady++
 		inst.readyMsgs[msg.From] = msg
-		// if inst.numReady == inst.thld && inst.round == 0 {
-		// 	if !inst.hasVotedZero && !inst.hasVotedOne {
-		// 		inst.hasVotedOne = true
-		// 		inst.tp.Broadcast(&message.ConsMessage{
-		// 			Type:     message.BVAL,
-		// 			Proposer: msg.Proposer,
-		// 			Sequence: msg.Sequence,
-		// 			Content:  []byte{1}}) // vote 1
-		// 	}
-		// 	return inst.isReadyToEnterNewRound()
-		// }
 		if inst.numReady >= inst.f+1 && inst.round == 0 {
 			var collection []*message.ConsMessage
 			for _, m := range inst.readyMsgs {
@@ -208,7 +217,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.tp.Broadcast(&message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
-				Round:      msg.Round,
+				Round:      inst.round,
 				Sequence:   msg.Sequence,
 				Collection: collection,
 			})
@@ -222,23 +231,47 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			}
 			return inst.isReadyToEnterNewRound()
 		}
+
+	/*
+	 * upon receiving f+1 BVAL(b, r)
+	 * insert b into vals
+	 * broadcast f+1 BVAL(b, r)
+	 * if have not sent AUX(*, r)i then
+	 * broadcast AUX(b, r)i
+	 * start tmrB <- 2*delta
+	 */
 	case message.BVAL:
 		// inst.bvalMsgs[msg.Round][msg.From] = msg
 		var b bool
 		switch msg.Content[0] {
 		case 0:
 			inst.numBvalZero[msg.Round]++
+			inst.bvalZeroMsgs[msg.Round][msg.From] = msg
 		case 1:
 			inst.numBvalOne[msg.Round]++
+			inst.bvalOneMsgs[msg.Round][msg.From] = msg
 		}
 		if inst.round == msg.Round && !inst.hasVotedZero && inst.numBvalZero[inst.round] > inst.f {
 			inst.hasVotedZero = true
+			var collection []*message.ConsMessage
+			for _, m := range inst.bvalZeroMsgs[msg.Round] {
+				if m != nil {
+					collection = append(collection, m)
+				}
+			}
 			inst.tp.Broadcast(&message.ConsMessage{
-				Type:     message.BVAL,
-				Proposer: msg.Proposer,
-				Round:    inst.round,
-				Sequence: msg.Sequence,
-				Content:  []byte{0}}) // vote 0
+				Type:       message.COLLECTION,
+				Proposer:   msg.Proposer,
+				Round:      inst.round,
+				Sequence:   msg.Sequence,
+				Collection: collection,
+			})
+			// inst.tp.Broadcast(&message.ConsMessage{
+			// 	Type:     message.BVAL,
+			// 	Proposer: msg.Proposer,
+			// 	Round:    inst.round,
+			// 	Sequence: msg.Sequence,
+			// 	Content:  []byte{0}}) // vote 0
 		}
 		if inst.round == msg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
 			inst.zeroEndorsed = true
@@ -251,17 +284,62 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					Sequence: msg.Sequence,
 					Content:  []byte{0}}) // aux 0
 			}
+			// start tmrB
+			inst.tmrB = *time.NewTimer(2 * time.Second)
+			go func() {
+				<-inst.tmrB.C
+				// upon receiving f+1 AUX(*, r) and f+1 BVAL(b, r)
+				// for each b in AUX(*, r) and tmrB expires
+				// broadcast CON(vals, r)i, COIN(r)i
+				if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] > inst.f &&
+					((inst.numAuxZero[msg.Round] != 0 && inst.numBvalZero[msg.Round] > inst.f) ||
+						(inst.numAuxOne[msg.Round] != 0 && inst.numBvalOne[msg.Round] > inst.f)) {
+					if inst.hasVotedZero {
+						inst.tp.Broadcast(&message.ConsMessage{
+							Type:     message.CON,
+							Proposer: msg.Proposer,
+							Round:    inst.round,
+							Sequence: msg.Sequence,
+							Content:  []byte{0},
+						})
+					}
+					if inst.hasVotedOne {
+						inst.tp.Broadcast(&message.ConsMessage{
+							Type:     message.CON,
+							Proposer: msg.Proposer,
+							Round:    inst.round,
+							Sequence: msg.Sequence,
+							Content:  []byte{1},
+						})
+					}
+					inst.isReadyToSendCoin()
+				}
+
+			}()
 			inst.isReadyToSendCoin()
 			b = true
 		}
 		if inst.round == msg.Round && !inst.hasVotedOne && inst.numBvalOne[inst.round] > inst.f {
 			inst.hasVotedOne = true
+			var collection []*message.ConsMessage
+			for _, m := range inst.bvalOneMsgs[msg.Round] {
+				if m != nil {
+					collection = append(collection, m)
+				}
+			}
 			inst.tp.Broadcast(&message.ConsMessage{
-				Type:     message.BVAL,
-				Proposer: msg.Proposer,
-				Round:    inst.round,
-				Sequence: msg.Sequence,
-				Content:  []byte{1}}) // vote 1
+				Type:       message.COLLECTION,
+				Proposer:   msg.Proposer,
+				Round:      inst.round,
+				Sequence:   msg.Sequence,
+				Collection: collection,
+			})
+			// inst.tp.Broadcast(&message.ConsMessage{
+			// 	Type:     message.BVAL,
+			// 	Proposer: msg.Proposer,
+			// 	Round:    inst.round,
+			// 	Sequence: msg.Sequence,
+			// 	Content:  []byte{1}}) // vote 1
 		}
 		if inst.round == msg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
 			inst.oneEndorsed = true
@@ -274,12 +352,50 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					Sequence: msg.Sequence,
 					Content:  []byte{1}}) // aux 1
 			}
+			// start tmrB
+			inst.tmrB = *time.NewTimer(2 * time.Second)
+			go func() {
+				<-inst.tmrB.C
+				// upon receiving f+1 AUX(*, r) and f+1 BVAL(b, r)
+				// for each b in AUX(*, r) and tmrB expires
+				// broadcast CON(vals, r)i, COIN(r)i
+				if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] > inst.f &&
+					((inst.numAuxZero[msg.Round] != 0 && inst.numBvalZero[msg.Round] > inst.f) ||
+						(inst.numAuxOne[msg.Round] != 0 && inst.numBvalOne[msg.Round] > inst.f)) {
+					if inst.hasVotedZero {
+						inst.tp.Broadcast(&message.ConsMessage{
+							Type:     message.CON,
+							Proposer: msg.Proposer,
+							Round:    inst.round,
+							Sequence: msg.Sequence,
+							Content:  []byte{0},
+						})
+					}
+					if inst.hasVotedOne {
+						inst.tp.Broadcast(&message.ConsMessage{
+							Type:     message.CON,
+							Proposer: msg.Proposer,
+							Round:    inst.round,
+							Sequence: msg.Sequence,
+							Content:  []byte{1},
+						})
+					}
+					inst.isReadyToSendCoin()
+				}
+
+			}()
 			inst.isReadyToSendCoin()
 			b = true
 		}
 		if b {
 			return inst.isReadyToEnterNewRound()
 		}
+
+	/*
+	 * upon receiving f+1 AUX(*, r) and f+1 BVAL(b, r)
+	 * for each b in AUX(*, r) and tmrB expires
+	 * broadcast CON(vals, r)i, COIN(r)i
+	 */
 	case message.AUX:
 		// inst.auxMsgs[msg.Round][msg.From] = msg
 		switch msg.Content[0] {
@@ -290,6 +406,16 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		if inst.round == msg.Round {
 			inst.isReadyToSendCoin()
+			return inst.isReadyToEnterNewRound()
+		}
+
+	/*
+	 * upon receiving f+1 CON(*, r), COIN(r)
+	 * NextRound()
+	 */
+	case message.CON:
+		inst.numCon[msg.Round]++
+		if inst.round == msg.Round {
 			return inst.isReadyToEnterNewRound()
 		}
 	case message.COIN:
@@ -307,6 +433,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				switch m.Type {
 				case message.READY:
 					inst.readyMsgs[m.From] = m
+				case message.BVAL:
+					switch m.Content[0] {
+					case 0:
+						inst.bvalZeroMsgs[msg.Round][m.From] = m
+					case 1:
+						inst.bvalOneMsgs[msg.Round][m.From] = m
+					}
 				}
 			}
 		}
@@ -345,6 +478,7 @@ func (inst *instance) isReadyToSendCoin() {
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 	if inst.hasSentCoin &&
 		inst.numCoin[inst.round] > inst.f &&
+		inst.numCon[inst.round] > inst.f &&
 		inst.proposal != nil &&
 		inst.numReady >= inst.thld &&
 		inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld &&

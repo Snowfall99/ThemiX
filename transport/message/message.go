@@ -34,6 +34,7 @@ const (
 	AUX        MessageType = 4
 	COIN       MessageType = 5
 	COLLECTION MessageType = 6
+	CON        MessageType = 7
 )
 
 // ConsMessage is the message type exchanged for achieving consensus
@@ -73,6 +74,8 @@ func (t MessageType) GetName() string {
 		return "COIN"
 	case 6:
 		return "COLLECTION"
+	case 7:
+		return "CON"
 	}
 	return "UNKNOWN"
 }
