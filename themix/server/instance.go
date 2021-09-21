@@ -82,7 +82,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		sequence:     sequence,
 		n:            n,
 		thld:         thld,
-		f:            n / 3,
+		f:            n / 2,
 		valMsgs:      make([]*message.ConsMessage, n),
 		readyMsgs:    make([]*message.ConsMessage, n),
 		bvalZeroMsgs: make([][]*message.ConsMessage, maxround),
