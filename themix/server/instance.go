@@ -73,16 +73,12 @@ type instance struct {
 	bvalOneMsgs  [][]*message.ConsMessage
 	auxZeroMsgs  [][]*message.ConsMessage
 	auxOneMsgs   [][]*message.ConsMessage
-	// echoMsgs    []*transport.ConsMessage
-	// readyMsgs   []*transport.ConsMessage
-	// bvalMsgs    [][]*transport.ConsMessage
-	// auxMsgs     [][]*transport.ConsMessage
-	coinMsgs [][]*message.ConsMessage
-	tmrR     time.Timer
-	tmrB     time.Timer
-	tmrS     time.Timer
-	lg       *zap.Logger
-	lock     sync.Mutex
+	coinMsgs     [][]*message.ConsMessage
+	tmrR         time.Timer
+	tmrB         time.Timer
+	tmrS         time.Timer
+	lg           *zap.Logger
+	lock         sync.Mutex
 }
 
 func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, sequence uint64, n uint64, thld uint64) *instance {
@@ -103,22 +99,16 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		bvalOneMsgs:  make([][]*message.ConsMessage, maxround),
 		auxZeroMsgs:  make([][]*message.ConsMessage, maxround),
 		auxOneMsgs:   make([][]*message.ConsMessage, maxround),
-		// echoMsgs:    make([]*transport.ConsMessage, n),
-		// readyMsgs:   make([]*transport.ConsMessage, n),
-		// bvalMsgs:    make([][]*transport.ConsMessage, maxround),
-		// auxMsgs:     make([][]*transport.ConsMessage, maxround),
-		coinMsgs:    make([][]*message.ConsMessage, maxround),
-		numBvalZero: make([]uint64, maxround),
-		numBvalOne:  make([]uint64, maxround),
-		numAuxZero:  make([]uint64, maxround),
-		numAuxOne:   make([]uint64, maxround),
-		numCon:      make([]uint64, maxround),
-		numCoin:     make([]uint64, maxround),
-		lock:        sync.Mutex{}}
+		coinMsgs:     make([][]*message.ConsMessage, maxround),
+		numBvalZero:  make([]uint64, maxround),
+		numBvalOne:   make([]uint64, maxround),
+		numAuxZero:   make([]uint64, maxround),
+		numAuxOne:    make([]uint64, maxround),
+		numCon:       make([]uint64, maxround),
+		numCoin:      make([]uint64, maxround),
+		lock:         sync.Mutex{}}
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
 	for i := 0; i < maxround; i++ {
-		// inst.bvalMsgs[i] = make([]*transport.ConsMessage, n)
-		// inst.auxMsgs[i] = make([]*transport.ConsMessage, n)
 		inst.bvalZeroMsgs[i] = make([]*message.ConsMessage, n)
 		inst.bvalOneMsgs[i] = make([]*message.ConsMessage, n)
 		inst.auxZeroMsgs[i] = make([]*message.ConsMessage, n)
@@ -287,7 +277,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * start tmrB <- 2*delta
 	 */
 	case message.BVAL:
-		// inst.bvalMsgs[msg.Round][msg.From] = msg
 		var b bool
 		switch msg.Content[0] {
 		case 0:
@@ -376,7 +365,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * broadcast CON(vals, r)i, COIN(r)i
 	 */
 	case message.AUX:
-		// inst.auxMsgs[msg.Round][msg.From] = msg
 		switch msg.Content[0] {
 		case 0:
 			inst.numAuxZero[msg.Round]++
