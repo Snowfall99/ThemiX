@@ -54,7 +54,11 @@ type instance struct {
 	round        uint8
 	numEcho      uint64
 	numReady     uint64
+	numOneSkip   uint64
+	numZeroSkip  uint64
 	binVals      uint8
+	sin          []bool
+	canSkipCoin  []bool
 	numBvalZero  []uint64
 	numBvalOne   []uint64
 	numAuxZero   []uint64
@@ -76,6 +80,7 @@ type instance struct {
 	coinMsgs [][]*message.ConsMessage
 	tmrR     time.Timer
 	tmrB     time.Timer
+	tmrS     time.Timer
 	lg       *zap.Logger
 	lock     sync.Mutex
 }
@@ -89,6 +94,8 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		n:            n,
 		thld:         thld,
 		f:            n / 2,
+		sin:          make([]bool, maxround),
+		canSkipCoin:  make([]bool, maxround),
 		valMsgs:      make([]*message.ConsMessage, n),
 		echoMsgs:     make([]*message.ConsMessage, n),
 		readyMsgs:    make([]*message.ConsMessage, n),
@@ -108,7 +115,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		numCon:      make([]uint64, maxround),
 		numCoin:     make([]uint64, maxround),
 		lock:        sync.Mutex{}}
-	inst.fastgroup = uint64(math.Ceil(3*float64(n)/4)) + 1
+	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
 	for i := 0; i < maxround; i++ {
 		// inst.bvalMsgs[i] = make([]*transport.ConsMessage, n)
 		// inst.auxMsgs[i] = make([]*transport.ConsMessage, n)
@@ -117,6 +124,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		inst.auxZeroMsgs[i] = make([]*message.ConsMessage, n)
 		inst.auxOneMsgs[i] = make([]*message.ConsMessage, n)
 		inst.coinMsgs[i] = make([]*message.ConsMessage, n)
+		inst.canSkipCoin[i] = true
 	}
 	return inst
 }
@@ -349,6 +357,15 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.isReadyToSendCoin()
 			b = true
 		}
+		if b && inst.round == msg.Round {
+			// start tmrS
+			inst.tmrS = *time.NewTimer(2 * time.Second)
+			go func() {
+				<-inst.tmrS.C
+				// if tmrS expires, canSkipCoin = false
+				inst.canSkipCoin[msg.Round] = false
+			}()
+		}
 		if b {
 			return inst.isReadyToEnterNewRound()
 		}
@@ -371,7 +388,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 
 		if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] == inst.f+1 {
 			// start tmrB
-			inst.tmrB = *time.NewTimer(2 * time.Second)
+			inst.tmrB = *time.NewTimer(4 * time.Second)
 			go func() {
 				<-inst.tmrB.C
 				// upon receiving f+1 AUX(*, r) and f+1 BVAL(b, r)
@@ -407,6 +424,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 * upon receiving AUX(b, r) from fast group
 		 * broadcast AUX(b, r), sent by fast group, COIN(r)
 		 * vals <- {b}
+		 * if canSkipCoin(r) == true then
+		 * broadcast SKIP(b, r)
 		 * NEWROUND()
 		 */
 		if inst.round == msg.Round && msg.Content[0] == 0 && inst.numAuxZero[msg.Round] == inst.fastgroup {
@@ -425,6 +444,15 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			})
 
 			inst.zeroEndorsed = true
+			if inst.canSkipCoin[inst.round] {
+				inst.tp.Broadcast(&message.ConsMessage{
+					Type:     message.SKIP,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  msg.Content,
+				})
+			}
 			inst.isReadyToSendCoin()
 			return inst.isReadyToEnterNewRound()
 		}
@@ -444,6 +472,15 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			})
 
 			inst.oneEndorsed = true
+			if inst.canSkipCoin[inst.round] {
+				inst.tp.Broadcast(&message.ConsMessage{
+					Type:     message.SKIP,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  msg.Content,
+				})
+			}
 			inst.isReadyToSendCoin()
 			return inst.isReadyToEnterNewRound()
 		}
@@ -467,6 +504,21 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		inst.numCoin[msg.Round]++
 		if inst.round == msg.Round {
 			return inst.isReadyToEnterNewRound()
+		}
+	case message.SKIP:
+		switch msg.Content[0] {
+		case 0:
+			inst.numZeroSkip++
+		case 1:
+			inst.numOneSkip++
+		}
+		// if receiving SKIP(b, r') (any r') from fastgroup
+		// decide(b)
+		if msg.Content[0] == 0 && inst.proposal != nil && inst.numZeroSkip == inst.fastgroup {
+			return inst.fastDecide(0)
+		}
+		if msg.Content[0] == 1 && inst.proposal != nil && inst.numOneSkip == inst.fastgroup {
+			return inst.fastDecide(1)
 		}
 	case message.COLLECTION:
 		if msg.Collection == nil {
@@ -610,6 +662,43 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		}
 	}
 	return false, false
+}
+
+func (inst *instance) fastDecide(value int) (bool, bool) {
+	if inst.isDecided {
+		inst.isFinished = true
+		return false, true
+	}
+
+	inst.lg.Info("fast decide",
+		zap.Int("proposer", int(inst.proposal.Proposer)),
+		zap.Int("seq", int(inst.sequence)),
+		zap.Int("round", int(inst.round)),
+		zap.Int("result", value))
+
+	inst.isDecided = true
+	nextVote := inst.binVals
+	if nextVote == 0 {
+		inst.hasVotedZero = true
+		inst.hasVotedOne = false
+	} else {
+		inst.hasVotedZero = false
+		inst.hasVotedOne = true
+	}
+	inst.hasSentAux = false
+	inst.hasSentCoin = false
+	inst.zeroEndorsed = false
+	inst.oneEndorsed = false
+	inst.round++
+
+	inst.tp.Broadcast(&message.ConsMessage{
+		Type:     message.BVAL,
+		Proposer: inst.proposal.Proposer,
+		Round:    inst.round,
+		Sequence: inst.sequence,
+		Content:  []byte{nextVote},
+	})
+	return true, false
 }
 
 func (inst *instance) getCoinInfo() []byte {
