@@ -57,6 +57,7 @@ type instance struct {
 	numOneSkip   uint64
 	numZeroSkip  uint64
 	binVals      uint8
+	lastCoin     uint8
 	sin          []bool
 	canSkipCoin  []bool
 	numBvalZero  []uint64
@@ -355,6 +356,44 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				inst.canSkipCoin[msg.Round] = false
 			}()
 		}
+		/*
+		 * upon receiving f+1 BVAL(b, r-1) and coin(r-1) = b
+		 * if have not sent BVAL(b, r) or AUX(*, r) then
+		 * if sin(r-1) = false then
+		 * broadcast BVAL(b, r)
+		 */
+		if inst.round == msg.Round+1 {
+			switch msg.Content[0] {
+			case 0:
+				if inst.numBvalZero[msg.Round] == inst.f+1 && inst.lastCoin == 0 {
+					if !inst.hasVotedZero || !inst.hasSentAux {
+						if !inst.sin[msg.Round] {
+							inst.tp.Broadcast(&message.ConsMessage{
+								Type:     message.BVAL,
+								Proposer: msg.Proposer,
+								Round:    inst.round,
+								Sequence: msg.Sequence,
+								Content:  []byte{0},
+							})
+						}
+					}
+				}
+			case 1:
+				if inst.numBvalOne[msg.Round] == inst.f+1 && inst.lastCoin == 1 {
+					if !inst.hasVotedOne || !inst.hasSentAux {
+						if !inst.sin[msg.Round] {
+							inst.tp.Broadcast(&message.ConsMessage{
+								Type:     message.BVAL,
+								Proposer: msg.Proposer,
+								Round:    inst.round,
+								Sequence: msg.Sequence,
+								Content:  []byte{1},
+							})
+						}
+					}
+				}
+			}
+		}
 		if b {
 			return inst.isReadyToEnterNewRound()
 		}
@@ -432,6 +471,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			})
 
 			inst.zeroEndorsed = true
+			inst.sin[inst.round] = true
 			if inst.canSkipCoin[inst.round] {
 				inst.tp.Broadcast(&message.ConsMessage{
 					Type:     message.SKIP,
@@ -460,6 +500,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			})
 
 			inst.oneEndorsed = true
+			inst.sin[inst.round] = true
 			if inst.canSkipCoin[inst.round] {
 				inst.tp.Broadcast(&message.ConsMessage{
 					Type:     message.SKIP,
@@ -471,6 +512,36 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			}
 			inst.isReadyToSendCoin()
 			return inst.isReadyToEnterNewRound()
+		}
+
+		/*
+		 * upon receiving AUX(b, r-1) from fast group
+		 * if have not sent BVAL(b, r) or AUX(*, r) then
+		 * broadcast BVAL(b, r)
+		 */
+		if inst.round == msg.Round+1 {
+			switch msg.Content[0] {
+			case 0:
+				if !inst.hasVotedZero || !inst.hasSentAux {
+					inst.tp.Broadcast(&message.ConsMessage{
+						Type:     message.BVAL,
+						Proposer: msg.Proposer,
+						Round:    inst.round,
+						Sequence: msg.Sequence,
+						Content:  []byte{0},
+					})
+				}
+			case 1:
+				if !inst.hasVotedOne || !inst.hasSentAux {
+					inst.tp.Broadcast(&message.ConsMessage{
+						Type:     message.BVAL,
+						Proposer: msg.Proposer,
+						Round:    inst.round,
+						Sequence: msg.Sequence,
+						Content:  []byte{1},
+					})
+				}
+			}
 		}
 
 		if inst.round == msg.Round {
@@ -636,6 +707,7 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		inst.hasSentCoin = false
 		inst.zeroEndorsed = false
 		inst.oneEndorsed = false
+		inst.lastCoin = coin[0]
 		inst.round++
 
 		inst.tp.Broadcast(&message.ConsMessage{
