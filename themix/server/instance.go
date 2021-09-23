@@ -75,6 +75,9 @@ type instance struct {
 	auxZeroMsgs  [][]*message.ConsMessage
 	auxOneMsgs   [][]*message.ConsMessage
 	coinMsgs     [][]*message.ConsMessage
+	startR       bool
+	startB       bool
+	startS       bool
 	tmrR         time.Timer
 	tmrB         time.Timer
 	tmrS         time.Timer
@@ -181,6 +184,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		inst.echoMsgs[msg.From] = msg
 		if inst.numEcho == inst.f+1 {
 			// start tmrR
+			inst.startR = true
 			inst.tmrR = *time.NewTimer(2 * time.Second)
 			go func() {
 				<-inst.tmrR.C
@@ -212,6 +216,9 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 */
 		if inst.numEcho == inst.fastgroup && inst.round == 0 {
 			inst.fastRBC = true
+			if inst.startR {
+				inst.tmrR.Stop()
+			}
 			var collection []*message.ConsMessage
 			for _, m := range inst.echoMsgs {
 				if m != nil {
@@ -244,7 +251,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	case message.READY:
 		inst.numReady++
 		inst.readyMsgs[msg.From] = msg
-		if inst.numReady >= inst.f+1 && inst.round == 0 {
+		if inst.numReady >= inst.f+1 && inst.round == 0 && !inst.fastRBC {
 			var collection []*message.ConsMessage
 			for _, m := range inst.readyMsgs {
 				if m != nil {
@@ -349,6 +356,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		if b && inst.round == msg.Round {
 			// start tmrS
+			inst.startS = true
 			inst.tmrS = *time.NewTimer(2 * time.Second)
 			go func() {
 				<-inst.tmrS.C
@@ -415,6 +423,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 
 		if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] == inst.f+1 {
 			// start tmrB
+			inst.startB = true
 			inst.tmrB = *time.NewTimer(4 * time.Second)
 			go func() {
 				<-inst.tmrB.C
@@ -708,6 +717,14 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		inst.zeroEndorsed = false
 		inst.oneEndorsed = false
 		inst.lastCoin = coin[0]
+		if inst.startB {
+			inst.tmrB.Stop()
+			inst.startB = false
+		}
+		if inst.startS {
+			inst.tmrS.Stop()
+			inst.startS = false
+		}
 		inst.round++
 
 		inst.tp.Broadcast(&message.ConsMessage{
@@ -749,6 +766,14 @@ func (inst *instance) fastDecide(value int) (bool, bool) {
 	inst.hasSentCoin = false
 	inst.zeroEndorsed = false
 	inst.oneEndorsed = false
+	if inst.startB {
+		inst.tmrB.Stop()
+		inst.startB = false
+	}
+	if inst.startS {
+		inst.tmrS.Stop()
+		inst.startS = false
+	}
 	inst.round++
 
 	inst.tp.Broadcast(&message.ConsMessage{
