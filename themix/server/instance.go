@@ -194,10 +194,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				if inst.numEcho >= inst.f+1 {
 					content := inst.proposal.Content
 					for _, msg := range inst.valMsgs {
-						if msg != nil {
-							if !bytes.Equal(content, msg.Content) {
-								return
-							}
+						if msg != nil && !bytes.Equal(content, msg.Content) {
+							return
 						}
 					}
 					inst.tp.Broadcast(&message.ConsMessage{
@@ -373,32 +371,28 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if inst.round == msg.Round+1 {
 			switch msg.Content[0] {
 			case 0:
-				if inst.numBvalZero[msg.Round] == inst.f+1 && inst.lastCoin == 0 {
-					if !inst.hasVotedZero || !inst.hasSentAux {
-						if !inst.sin[msg.Round] {
-							inst.tp.Broadcast(&message.ConsMessage{
-								Type:     message.BVAL,
-								Proposer: msg.Proposer,
-								Round:    inst.round,
-								Sequence: msg.Sequence,
-								Content:  []byte{0},
-							})
-						}
-					}
+				if inst.numBvalZero[msg.Round] == inst.f+1 && inst.lastCoin == 0 &&
+					(!inst.hasVotedZero || !inst.hasSentAux) &&
+					!inst.sin[msg.Round] {
+					inst.tp.Broadcast(&message.ConsMessage{
+						Type:     message.BVAL,
+						Proposer: msg.Proposer,
+						Round:    inst.round,
+						Sequence: msg.Sequence,
+						Content:  []byte{0},
+					})
 				}
 			case 1:
-				if inst.numBvalOne[msg.Round] == inst.f+1 && inst.lastCoin == 1 {
-					if !inst.hasVotedOne || !inst.hasSentAux {
-						if !inst.sin[msg.Round] {
-							inst.tp.Broadcast(&message.ConsMessage{
-								Type:     message.BVAL,
-								Proposer: msg.Proposer,
-								Round:    inst.round,
-								Sequence: msg.Sequence,
-								Content:  []byte{1},
-							})
-						}
-					}
+				if inst.numBvalOne[msg.Round] == inst.f+1 && inst.lastCoin == 1 &&
+					(!inst.hasVotedOne || !inst.hasSentAux) &&
+					!inst.sin[msg.Round] {
+					inst.tp.Broadcast(&message.ConsMessage{
+						Type:     message.BVAL,
+						Proposer: msg.Proposer,
+						Round:    inst.round,
+						Sequence: msg.Sequence,
+						Content:  []byte{1},
+					})
 				}
 			}
 		}
