@@ -780,6 +780,99 @@ func (inst *instance) fastDecide(value int) (bool, bool) {
 	return true, false
 }
 
+func (inst *instance) handleReady(msg *message.ConsMessage) {
+	var collection []*message.ConsMessage
+	for _, m := range inst.readyMsgs {
+		if m != nil {
+			collection = append(collection, m)
+		}
+	}
+	inst.tp.Broadcast(&message.ConsMessage{
+		Type:       message.COLLECTION,
+		Proposer:   msg.Proposer,
+		Round:      inst.round,
+		Sequence:   msg.Sequence,
+		Collection: collection,
+	})
+	if !inst.hasVotedZero && !inst.hasVotedOne {
+		inst.hasVotedOne = true
+		inst.tp.Broadcast(&message.ConsMessage{
+			Type:     message.BVAL,
+			Proposer: msg.Proposer,
+			Sequence: msg.Sequence,
+			Content:  []byte{1},
+		})
+	}
+}
+
+func (inst *instance) handleZeroBVAL(msg *message.ConsMessage) bool {
+	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.hasVotedZero && inst.numBvalZero[inst.round] >= inst.thld {
+		inst.hasVotedZero = true
+		var collection []*message.ConsMessage
+		for _, m := range inst.bvalZeroMsgs[msg.Round] {
+			if m != nil {
+				collection = append(collection, m)
+			}
+		}
+		inst.tp.Broadcast(&message.ConsMessage{
+			Type:       message.COLLECTION,
+			Proposer:   msg.Proposer,
+			Round:      inst.round,
+			Sequence:   msg.Sequence,
+			Collection: collection,
+		})
+	}
+	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
+		inst.zeroEndorsed = true
+		if !inst.hasSentAux {
+			inst.hasSentAux = true
+			inst.tp.Broadcast(&message.ConsMessage{
+				Type:     message.AUX,
+				Proposer: msg.Proposer,
+				Round:    inst.round,
+				Sequence: msg.Sequence,
+				Content:  []byte{0}}) // aux 0
+		}
+		inst.isReadyToSendCoin()
+		return true
+	}
+	return false
+}
+
+func (inst *instance) handleOneBVAL(msg *message.ConsMessage) bool {
+	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.hasVotedOne && inst.numBvalOne[inst.round] >= inst.thld {
+		inst.hasVotedZero = true
+		var collection []*message.ConsMessage
+		for _, m := range inst.bvalOneMsgs[msg.Round] {
+			if m != nil {
+				collection = append(collection, m)
+			}
+		}
+		inst.tp.Broadcast(&message.ConsMessage{
+			Type:       message.COLLECTION,
+			Proposer:   msg.Proposer,
+			Round:      inst.round,
+			Sequence:   msg.Sequence,
+			Collection: collection,
+		})
+	}
+	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
+		inst.oneEndorsed = true
+		if !inst.hasSentAux {
+			inst.hasSentAux = true
+			inst.tp.Broadcast(&message.ConsMessage{
+				Type:     message.AUX,
+				Proposer: msg.Proposer,
+				Round:    inst.round,
+				Sequence: msg.Sequence,
+				Content:  []byte{1}}) // aux 1
+		}
+		inst.isReadyToSendCoin()
+		return true
+	}
+	return false
+}
+
 func (inst *instance) getCoinInfo() []byte {
 	bsender := make([]byte, 8)
 	binary.LittleEndian.PutUint64(bsender, uint64(inst.proposal.Proposer))
