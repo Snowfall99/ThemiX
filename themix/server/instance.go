@@ -128,6 +128,11 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	inst.lock.Lock()
 	defer inst.lock.Unlock()
 
+	// Just for test
+	if msg.Round > 0 {
+		return false, false
+	}
+
 	if inst.isFinished {
 		return false, false
 	}
@@ -554,17 +559,17 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 
 	/*
 	 * upon receiving f+1 CON(*, r), COIN(r)
-	 * NextRound()
+	 * NewRound()
 	 */
 	case message.CON:
 		inst.numCon[msg.Round]++
-		if inst.round == msg.Round {
+		if inst.round == msg.Round && inst.numCon[msg.Round] >= inst.f+1 && inst.numCoin[msg.Round] >= inst.f+1 {
 			return inst.isReadyToEnterNewRound()
 		}
 	case message.COIN:
 		inst.coinMsgs[msg.Round][msg.From] = msg
 		inst.numCoin[msg.Round]++
-		if inst.round == msg.Round {
+		if inst.round == msg.Round && inst.numCon[msg.Round] >= inst.f+1 && inst.numCoin[msg.Round] >= inst.f+1 {
 			return inst.isReadyToEnterNewRound()
 		}
 	case message.SKIP:
