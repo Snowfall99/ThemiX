@@ -17,6 +17,7 @@ package server
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sync"
@@ -228,12 +229,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					collection = append(collection, m)
 				}
 			}
+			data := serialCollection(collection)
 			inst.tp.Broadcast(&message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
-				Collection: collection,
+				Collection: data,
 			})
 			if !inst.hasVotedZero && !inst.hasVotedOne {
 				inst.hasVotedOne = true
@@ -261,12 +263,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					collection = append(collection, m)
 				}
 			}
+			data := serialCollection(collection)
 			inst.tp.Broadcast(&message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
-				Collection: collection,
+				Collection: data,
 			})
 			if !inst.hasVotedZero && !inst.hasVotedOne {
 				inst.hasVotedOne = true
@@ -305,12 +308,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					collection = append(collection, m)
 				}
 			}
+			data := serialCollection(collection)
 			inst.tp.Broadcast(&message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
-				Collection: collection,
+				Collection: data,
 			})
 		}
 		if inst.round == msg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
@@ -335,12 +339,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					collection = append(collection, m)
 				}
 			}
+			data := serialCollection(collection)
 			inst.tp.Broadcast(&message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
-				Collection: collection,
+				Collection: data,
 			})
 		}
 		if inst.round == msg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
@@ -470,12 +475,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					collection = append(collection, m)
 				}
 			}
+			data := serialCollection(collection)
 			inst.tp.Broadcast(&message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
-				Collection: collection,
+				Collection: data,
 			})
 
 			inst.zeroEndorsed = true
@@ -499,12 +505,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					collection = append(collection, m)
 				}
 			}
+			data := serialCollection(collection)
 			inst.tp.Broadcast(&message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
-				Collection: collection,
+				Collection: data,
 			})
 
 			inst.oneEndorsed = true
@@ -591,42 +598,42 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if msg.Collection == nil {
 			fmt.Println("Nil collection")
 		}
-		for _, m := range msg.Collection {
-			if m != nil {
-				switch m.Type {
-				case message.READY:
-					// if inst.readyMsgs[m.From] == nil {
-					// 	inst.numReady++
+		collection := deserialCollection(msg.Collection)
+		for _, m := range collection {
+			switch m.Type {
+			case message.READY:
+				// if inst.readyMsgs[m.From] == nil {
+				// 	inst.numReady++
+				// }
+				inst.readyMsgs[m.From] = &m
+			case message.BVAL:
+				switch m.Content[0] {
+				case 0:
+					// if inst.bvalZeroMsgs[msg.Round][m.From] == nil {
+					// 	inst.numBvalZero[msg.Round]++
 					// }
-					inst.readyMsgs[m.From] = m
-				case message.BVAL:
-					switch m.Content[0] {
-					case 0:
-						// if inst.bvalZeroMsgs[msg.Round][m.From] == nil {
-						// 	inst.numBvalZero[msg.Round]++
-						// }
-						inst.bvalZeroMsgs[msg.Round][m.From] = m
-					case 1:
-						// if inst.bvalOneMsgs[msg.Round][m.From] == nil {
-						// 	inst.numBvalOne[msg.Round]++
-						// }
-						inst.bvalOneMsgs[msg.Round][m.From] = m
-					}
-				case message.ECHO:
-					// if inst.echoMsgs[m.From] == nil {
-					// 	inst.numEcho++
+					inst.bvalZeroMsgs[msg.Round][m.From] = &m
+				case 1:
+					// if inst.bvalOneMsgs[msg.Round][m.From] == nil {
+					// 	inst.numBvalOne[msg.Round]++
 					// }
-					inst.echoMsgs[m.From] = m
-				case message.AUX:
-					switch m.Content[0] {
-					case 0:
-						inst.auxZeroMsgs[msg.Round][m.From] = m
-					case 1:
-						inst.auxOneMsgs[msg.Round][m.From] = m
-					}
+					inst.bvalOneMsgs[msg.Round][m.From] = &m
+				}
+			case message.ECHO:
+				// if inst.echoMsgs[m.From] == nil {
+				// 	inst.numEcho++
+				// }
+				inst.echoMsgs[m.From] = &m
+			case message.AUX:
+				switch m.Content[0] {
+				case 0:
+					inst.auxZeroMsgs[msg.Round][m.From] = &m
+				case 1:
+					inst.auxOneMsgs[msg.Round][m.From] = &m
 				}
 			}
 		}
+
 	default:
 		return false, false
 	}
@@ -785,98 +792,98 @@ func (inst *instance) fastDecide(value int) (bool, bool) {
 	return true, false
 }
 
-func (inst *instance) handleReady(msg *message.ConsMessage) {
-	var collection []*message.ConsMessage
-	for _, m := range inst.readyMsgs {
-		if m != nil {
-			collection = append(collection, m)
-		}
-	}
-	inst.tp.Broadcast(&message.ConsMessage{
-		Type:       message.COLLECTION,
-		Proposer:   msg.Proposer,
-		Round:      inst.round,
-		Sequence:   msg.Sequence,
-		Collection: collection,
-	})
-	if !inst.hasVotedZero && !inst.hasVotedOne {
-		inst.hasVotedOne = true
-		inst.tp.Broadcast(&message.ConsMessage{
-			Type:     message.BVAL,
-			Proposer: msg.Proposer,
-			Sequence: msg.Sequence,
-			Content:  []byte{1},
-		})
-	}
-}
+// func (inst *instance) handleReady(msg *message.ConsMessage) {
+// 	var collection []*message.ConsMessage
+// 	for _, m := range inst.readyMsgs {
+// 		if m != nil {
+// 			collection = append(collection, m)
+// 		}
+// 	}
+// 	inst.tp.Broadcast(&message.ConsMessage{
+// 		Type:       message.COLLECTION,
+// 		Proposer:   msg.Proposer,
+// 		Round:      inst.round,
+// 		Sequence:   msg.Sequence,
+// 		Collection: collection,
+// 	})
+// 	if !inst.hasVotedZero && !inst.hasVotedOne {
+// 		inst.hasVotedOne = true
+// 		inst.tp.Broadcast(&message.ConsMessage{
+// 			Type:     message.BVAL,
+// 			Proposer: msg.Proposer,
+// 			Sequence: msg.Sequence,
+// 			Content:  []byte{1},
+// 		})
+// 	}
+// }
 
-func (inst *instance) handleZeroBVAL(msg *message.ConsMessage) bool {
-	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.hasVotedZero && inst.numBvalZero[inst.round] >= inst.thld {
-		inst.hasVotedZero = true
-		var collection []*message.ConsMessage
-		for _, m := range inst.bvalZeroMsgs[msg.Round] {
-			if m != nil {
-				collection = append(collection, m)
-			}
-		}
-		inst.tp.Broadcast(&message.ConsMessage{
-			Type:       message.COLLECTION,
-			Proposer:   msg.Proposer,
-			Round:      inst.round,
-			Sequence:   msg.Sequence,
-			Collection: collection,
-		})
-	}
-	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
-		inst.zeroEndorsed = true
-		if !inst.hasSentAux {
-			inst.hasSentAux = true
-			inst.tp.Broadcast(&message.ConsMessage{
-				Type:     message.AUX,
-				Proposer: msg.Proposer,
-				Round:    inst.round,
-				Sequence: msg.Sequence,
-				Content:  []byte{0}}) // aux 0
-		}
-		inst.isReadyToSendCoin()
-		return true
-	}
-	return false
-}
+// func (inst *instance) handleZeroBVAL(msg *message.ConsMessage) bool {
+// 	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.hasVotedZero && inst.numBvalZero[inst.round] >= inst.thld {
+// 		inst.hasVotedZero = true
+// 		var collection []*message.ConsMessage
+// 		for _, m := range inst.bvalZeroMsgs[msg.Round] {
+// 			if m != nil {
+// 				collection = append(collection, m)
+// 			}
+// 		}
+// 		inst.tp.Broadcast(&message.ConsMessage{
+// 			Type:       message.COLLECTION,
+// 			Proposer:   msg.Proposer,
+// 			Round:      inst.round,
+// 			Sequence:   msg.Sequence,
+// 			Collection: collection,
+// 		})
+// 	}
+// 	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
+// 		inst.zeroEndorsed = true
+// 		if !inst.hasSentAux {
+// 			inst.hasSentAux = true
+// 			inst.tp.Broadcast(&message.ConsMessage{
+// 				Type:     message.AUX,
+// 				Proposer: msg.Proposer,
+// 				Round:    inst.round,
+// 				Sequence: msg.Sequence,
+// 				Content:  []byte{0}}) // aux 0
+// 		}
+// 		inst.isReadyToSendCoin()
+// 		return true
+// 	}
+// 	return false
+// }
 
-func (inst *instance) handleOneBVAL(msg *message.ConsMessage) bool {
-	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.hasVotedOne && inst.numBvalOne[inst.round] >= inst.thld {
-		inst.hasVotedZero = true
-		var collection []*message.ConsMessage
-		for _, m := range inst.bvalOneMsgs[msg.Round] {
-			if m != nil {
-				collection = append(collection, m)
-			}
-		}
-		inst.tp.Broadcast(&message.ConsMessage{
-			Type:       message.COLLECTION,
-			Proposer:   msg.Proposer,
-			Round:      inst.round,
-			Sequence:   msg.Sequence,
-			Collection: collection,
-		})
-	}
-	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
-		inst.oneEndorsed = true
-		if !inst.hasSentAux {
-			inst.hasSentAux = true
-			inst.tp.Broadcast(&message.ConsMessage{
-				Type:     message.AUX,
-				Proposer: msg.Proposer,
-				Round:    inst.round,
-				Sequence: msg.Sequence,
-				Content:  []byte{1}}) // aux 1
-		}
-		inst.isReadyToSendCoin()
-		return true
-	}
-	return false
-}
+// func (inst *instance) handleOneBVAL(msg *message.ConsMessage) bool {
+// 	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.hasVotedOne && inst.numBvalOne[inst.round] >= inst.thld {
+// 		inst.hasVotedZero = true
+// 		var collection []*message.ConsMessage
+// 		for _, m := range inst.bvalOneMsgs[msg.Round] {
+// 			if m != nil {
+// 				collection = append(collection, m)
+// 			}
+// 		}
+// 		inst.tp.Broadcast(&message.ConsMessage{
+// 			Type:       message.COLLECTION,
+// 			Proposer:   msg.Proposer,
+// 			Round:      inst.round,
+// 			Sequence:   msg.Sequence,
+// 			Collection: collection,
+// 		})
+// 	}
+// 	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
+// 		inst.oneEndorsed = true
+// 		if !inst.hasSentAux {
+// 			inst.hasSentAux = true
+// 			inst.tp.Broadcast(&message.ConsMessage{
+// 				Type:     message.AUX,
+// 				Proposer: msg.Proposer,
+// 				Round:    inst.round,
+// 				Sequence: msg.Sequence,
+// 				Content:  []byte{1}}) // aux 1
+// 		}
+// 		inst.isReadyToSendCoin()
+// 		return true
+// 	}
+// 	return false
+// }
 
 func (inst *instance) getCoinInfo() []byte {
 	bsender := make([]byte, 8)
@@ -919,4 +926,22 @@ func (inst *instance) getProposal() *message.ConsMessage {
 	defer inst.lock.Unlock()
 
 	return inst.proposal
+}
+
+func serialCollection(collection []*message.ConsMessage) []byte {
+	mar_collection, err := json.Marshal(collection)
+	if err != nil {
+		panic("Marshal collection failed")
+	}
+
+	return mar_collection
+}
+
+func deserialCollection(data []byte) []message.ConsMessage {
+	var collection []message.ConsMessage
+	err := json.Unmarshal(data, &collection)
+	if err != nil {
+		panic("Unmarshal collection failed")
+	}
+	return collection
 }

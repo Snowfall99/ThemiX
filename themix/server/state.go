@@ -89,12 +89,12 @@ func (st *state) insertMsg(msg *message.ConsMessage) {
 
 func (st *state) garbageCollect(seq uint64) {
 
-	// st.lock.Lock()
-	// defer st.lock.Unlock()
+	st.lock.Lock()
+	defer st.lock.Unlock()
 
-	// delete(st.execs, seq)
-	// for _, b := st.execs[st.collected]; !b; st.collected++ {
-	// }
+	delete(st.execs, seq)
+	for _, b := st.execs[st.collected]; !b; st.collected++ {
+	}
 }
 
 // execute requests by a single thread

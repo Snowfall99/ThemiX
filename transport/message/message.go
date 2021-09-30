@@ -47,7 +47,7 @@ type ConsMessage struct {
 	Sequence   uint64
 	Signature  []byte
 	Content    []byte
-	Collection []*ConsMessage
+	Collection []byte
 }
 
 // Request is the message sent from client to servers
