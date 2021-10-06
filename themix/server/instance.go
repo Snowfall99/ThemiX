@@ -16,6 +16,7 @@ package server
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"go.themix.io/crypto/bls"
+	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
@@ -82,6 +84,7 @@ type instance struct {
 	tmrR         time.Timer
 	tmrB         time.Timer
 	tmrS         time.Timer
+	priv         *ecdsa.PrivateKey
 	lg           *zap.Logger
 	lock         sync.Mutex
 }
@@ -113,6 +116,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		numCoin:      make([]uint64, maxround),
 		lock:         sync.Mutex{}}
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
+	inst.priv, _ = myecdsa.LoadKey("../../../crypto/")
 	for i := 0; i < maxround; i++ {
 		inst.bvalZeroMsgs[i] = make([]*message.ConsMessage, n)
 		inst.bvalOneMsgs[i] = make([]*message.ConsMessage, n)
@@ -169,11 +173,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		inst.valMsgs[msg.From] = msg
 		if !inst.hasEcho {
 			// broadcast VAL(v)src, ECHO(v)i
-			inst.tp.Broadcast(&message.ConsMessage{
+			m := &message.ConsMessage{
 				Type:     message.ECHO,
 				Proposer: msg.Proposer,
 				Sequence: msg.Sequence,
-				Content:  hash})
+				Content:  hash}
+			GetSign(m, inst.priv)
+			inst.tp.Broadcast(m)
 			inst.hasEcho = true
 			inst.tp.Broadcast(msg)
 		}
@@ -186,6 +192,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * broadcast READY(v)i
 	 */
 	case message.ECHO:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
 		inst.numEcho++
 		inst.echoMsgs[msg.From] = msg
 		if inst.numEcho == inst.f+1 {
@@ -204,12 +214,14 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 							return
 						}
 					}
-					inst.tp.Broadcast(&message.ConsMessage{
+					m := &message.ConsMessage{
 						Type:     message.READY,
 						Proposer: msg.Proposer,
 						Sequence: msg.Sequence,
 						Content:  msg.Content,
-					})
+					}
+					GetSign(m, inst.priv)
+					inst.tp.Broadcast(m)
 				}
 			}()
 		}
@@ -230,20 +242,24 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				}
 			}
 			data := serialCollection(collection)
-			inst.tp.Broadcast(&message.ConsMessage{
+			m := &message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
 				Collection: data,
-			})
+			}
+			GetSign(m, inst.priv)
+			inst.tp.Broadcast(m)
 			if !inst.hasVotedZero && !inst.hasVotedOne {
 				inst.hasVotedOne = true
-				inst.tp.Broadcast(&message.ConsMessage{
+				m := &message.ConsMessage{
 					Type:     message.BVAL,
 					Proposer: msg.Proposer,
 					Sequence: msg.Sequence,
-					Content:  []byte{1}}) // vote 1
+					Content:  []byte{1}} // vote 1
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
 			}
 			return inst.isReadyToEnterNewRound()
 		}
@@ -254,6 +270,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * deliver(v)
 	 */
 	case message.READY:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
 		inst.numReady++
 		inst.readyMsgs[msg.From] = msg
 		if inst.numReady >= inst.f+1 && inst.round == 0 && !inst.fastRBC {
@@ -264,20 +284,24 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				}
 			}
 			data := serialCollection(collection)
-			inst.tp.Broadcast(&message.ConsMessage{
+			m := &message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
 				Collection: data,
-			})
+			}
+			GetSign(m, inst.priv)
+			inst.tp.Broadcast(m)
 			if !inst.hasVotedZero && !inst.hasVotedOne {
 				inst.hasVotedOne = true
-				inst.tp.Broadcast(&message.ConsMessage{
+				m := &message.ConsMessage{
 					Type:     message.BVAL,
 					Proposer: msg.Proposer,
 					Sequence: msg.Sequence,
-					Content:  []byte{1}}) // vote 1
+					Content:  []byte{1}} // vote 1
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
 			}
 			return inst.isReadyToEnterNewRound()
 		}
@@ -291,6 +315,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * start tmrB <- 2*delta
 	 */
 	case message.BVAL:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
 		var b bool
 		switch msg.Content[0] {
 		case 0:
@@ -309,24 +337,28 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				}
 			}
 			data := serialCollection(collection)
-			inst.tp.Broadcast(&message.ConsMessage{
+			m := &message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
 				Collection: data,
-			})
+			}
+			GetSign(m, inst.priv)
+			inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
 			inst.zeroEndorsed = true
 			if !inst.hasSentAux {
 				inst.hasSentAux = true
-				inst.tp.Broadcast(&message.ConsMessage{
+				m := &message.ConsMessage{
 					Type:     message.AUX,
 					Proposer: msg.Proposer,
 					Round:    inst.round,
 					Sequence: msg.Sequence,
-					Content:  []byte{0}}) // aux 0
+					Content:  []byte{0}} // aux 0
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
 			}
 			inst.isReadyToSendCoin()
 			b = true
@@ -340,24 +372,28 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				}
 			}
 			data := serialCollection(collection)
-			inst.tp.Broadcast(&message.ConsMessage{
+			m := &message.ConsMessage{
 				Type:       message.COLLECTION,
 				Proposer:   msg.Proposer,
 				Round:      inst.round,
 				Sequence:   msg.Sequence,
 				Collection: data,
-			})
+			}
+			GetSign(m, inst.priv)
+			inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
 			inst.oneEndorsed = true
 			if !inst.hasSentAux {
 				inst.hasSentAux = true
-				inst.tp.Broadcast(&message.ConsMessage{
+				m := &message.ConsMessage{
 					Type:     message.AUX,
 					Proposer: msg.Proposer,
 					Round:    inst.round,
 					Sequence: msg.Sequence,
-					Content:  []byte{1}}) // aux 1
+					Content:  []byte{1}} // aux 1
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
 			}
 			inst.isReadyToSendCoin()
 			b = true
@@ -384,25 +420,29 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				if inst.numBvalZero[msg.Round] == inst.f+1 && inst.lastCoin == 0 &&
 					(!inst.hasVotedZero || !inst.hasSentAux) &&
 					!inst.sin[msg.Round] {
-					inst.tp.Broadcast(&message.ConsMessage{
+					m := &message.ConsMessage{
 						Type:     message.BVAL,
 						Proposer: msg.Proposer,
 						Round:    inst.round,
 						Sequence: msg.Sequence,
 						Content:  []byte{0},
-					})
+					}
+					GetSign(m, inst.priv)
+					inst.tp.Broadcast(m)
 				}
 			case 1:
 				if inst.numBvalOne[msg.Round] == inst.f+1 && inst.lastCoin == 1 &&
 					(!inst.hasVotedOne || !inst.hasSentAux) &&
 					!inst.sin[msg.Round] {
-					inst.tp.Broadcast(&message.ConsMessage{
+					m := &message.ConsMessage{
 						Type:     message.BVAL,
 						Proposer: msg.Proposer,
 						Round:    inst.round,
 						Sequence: msg.Sequence,
 						Content:  []byte{1},
-					})
+					}
+					GetSign(m, inst.priv)
+					inst.tp.Broadcast(m)
 				}
 			}
 		}
@@ -416,6 +456,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * broadcast CON(vals, r)i, COIN(r)i
 	 */
 	case message.AUX:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
 		switch msg.Content[0] {
 		case 0:
 			inst.numAuxZero[msg.Round]++
@@ -538,23 +582,27 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			switch msg.Content[0] {
 			case 0:
 				if !inst.hasVotedZero || !inst.hasSentAux {
-					inst.tp.Broadcast(&message.ConsMessage{
+					m := &message.ConsMessage{
 						Type:     message.BVAL,
 						Proposer: msg.Proposer,
 						Round:    inst.round,
 						Sequence: msg.Sequence,
 						Content:  []byte{0},
-					})
+					}
+					GetSign(m, inst.priv)
+					inst.tp.Broadcast(m)
 				}
 			case 1:
 				if !inst.hasVotedOne || !inst.hasSentAux {
-					inst.tp.Broadcast(&message.ConsMessage{
+					m := &message.ConsMessage{
 						Type:     message.BVAL,
 						Proposer: msg.Proposer,
 						Round:    inst.round,
 						Sequence: msg.Sequence,
 						Content:  []byte{1},
-					})
+					}
+					GetSign(m, inst.priv)
+					inst.tp.Broadcast(m)
 				}
 			}
 		}
@@ -733,12 +781,14 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		}
 		inst.round++
 
-		inst.tp.Broadcast(&message.ConsMessage{
+		m := &message.ConsMessage{
 			Type:     message.BVAL,
 			Proposer: inst.proposal.Proposer,
 			Round:    inst.round,
 			Sequence: inst.sequence,
-			Content:  []byte{nextVote}})
+			Content:  []byte{nextVote}}
+		GetSign(m, inst.priv)
+		inst.tp.Broadcast(m)
 
 		if coin[0]%2 == inst.binVals && inst.isDecided {
 			return true, false
@@ -782,108 +832,17 @@ func (inst *instance) fastDecide(value int) (bool, bool) {
 	}
 	inst.round++
 
-	inst.tp.Broadcast(&message.ConsMessage{
+	m := &message.ConsMessage{
 		Type:     message.BVAL,
 		Proposer: inst.proposal.Proposer,
 		Round:    inst.round,
 		Sequence: inst.sequence,
 		Content:  []byte{nextVote},
-	})
+	}
+	GetSign(m, inst.priv)
+	inst.tp.Broadcast(m)
 	return true, false
 }
-
-// func (inst *instance) handleReady(msg *message.ConsMessage) {
-// 	var collection []*message.ConsMessage
-// 	for _, m := range inst.readyMsgs {
-// 		if m != nil {
-// 			collection = append(collection, m)
-// 		}
-// 	}
-// 	inst.tp.Broadcast(&message.ConsMessage{
-// 		Type:       message.COLLECTION,
-// 		Proposer:   msg.Proposer,
-// 		Round:      inst.round,
-// 		Sequence:   msg.Sequence,
-// 		Collection: collection,
-// 	})
-// 	if !inst.hasVotedZero && !inst.hasVotedOne {
-// 		inst.hasVotedOne = true
-// 		inst.tp.Broadcast(&message.ConsMessage{
-// 			Type:     message.BVAL,
-// 			Proposer: msg.Proposer,
-// 			Sequence: msg.Sequence,
-// 			Content:  []byte{1},
-// 		})
-// 	}
-// }
-
-// func (inst *instance) handleZeroBVAL(msg *message.ConsMessage) bool {
-// 	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.hasVotedZero && inst.numBvalZero[inst.round] >= inst.thld {
-// 		inst.hasVotedZero = true
-// 		var collection []*message.ConsMessage
-// 		for _, m := range inst.bvalZeroMsgs[msg.Round] {
-// 			if m != nil {
-// 				collection = append(collection, m)
-// 			}
-// 		}
-// 		inst.tp.Broadcast(&message.ConsMessage{
-// 			Type:       message.COLLECTION,
-// 			Proposer:   msg.Proposer,
-// 			Round:      inst.round,
-// 			Sequence:   msg.Sequence,
-// 			Collection: collection,
-// 		})
-// 	}
-// 	if inst.round == msg.Round && msg.Content[0] == 0 && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
-// 		inst.zeroEndorsed = true
-// 		if !inst.hasSentAux {
-// 			inst.hasSentAux = true
-// 			inst.tp.Broadcast(&message.ConsMessage{
-// 				Type:     message.AUX,
-// 				Proposer: msg.Proposer,
-// 				Round:    inst.round,
-// 				Sequence: msg.Sequence,
-// 				Content:  []byte{0}}) // aux 0
-// 		}
-// 		inst.isReadyToSendCoin()
-// 		return true
-// 	}
-// 	return false
-// }
-
-// func (inst *instance) handleOneBVAL(msg *message.ConsMessage) bool {
-// 	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.hasVotedOne && inst.numBvalOne[inst.round] >= inst.thld {
-// 		inst.hasVotedZero = true
-// 		var collection []*message.ConsMessage
-// 		for _, m := range inst.bvalOneMsgs[msg.Round] {
-// 			if m != nil {
-// 				collection = append(collection, m)
-// 			}
-// 		}
-// 		inst.tp.Broadcast(&message.ConsMessage{
-// 			Type:       message.COLLECTION,
-// 			Proposer:   msg.Proposer,
-// 			Round:      inst.round,
-// 			Sequence:   msg.Sequence,
-// 			Collection: collection,
-// 		})
-// 	}
-// 	if inst.round == msg.Round && msg.Content[0] == 1 && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
-// 		inst.oneEndorsed = true
-// 		if !inst.hasSentAux {
-// 			inst.hasSentAux = true
-// 			inst.tp.Broadcast(&message.ConsMessage{
-// 				Type:     message.AUX,
-// 				Proposer: msg.Proposer,
-// 				Round:    inst.round,
-// 				Sequence: msg.Sequence,
-// 				Content:  []byte{1}}) // aux 1
-// 		}
-// 		inst.isReadyToSendCoin()
-// 		return true
-// 	}
-// 	return false
-// }
 
 func (inst *instance) getCoinInfo() []byte {
 	bsender := make([]byte, 8)
@@ -905,12 +864,14 @@ func (inst *instance) canVoteZero(sender info.IDType, seq uint64) {
 
 	if inst.round == 0 && !inst.hasVotedZero && !inst.hasVotedOne {
 		inst.hasVotedZero = true
-		inst.tp.Broadcast(&message.ConsMessage{
+		m := &message.ConsMessage{
 			Type:     message.BVAL,
 			Proposer: sender,
 			Round:    inst.round,
 			Sequence: seq,
-			Content:  []byte{0}}) // vote 0
+			Content:  []byte{0}} // vote 0
+		GetSign(m, inst.priv)
+		inst.tp.Broadcast(m)
 	}
 }
 
@@ -944,4 +905,53 @@ func deserialCollection(data []byte) []message.ConsMessage {
 		panic("Unmarshal collection failed")
 	}
 	return collection
+}
+
+func GetSign(msg *message.ConsMessage, priv *ecdsa.PrivateKey) {
+	msg_type, _ := json.Marshal(msg.Type)
+	msg_proposer, _ := json.Marshal(msg.Proposer)
+	msg_round, _ := json.Marshal(msg.Round)
+	msg_sequence, _ := json.Marshal(msg.Sequence)
+	msg_content, _ := json.Marshal(msg.Content)
+	mar_msg := append(msg_type, msg_proposer...)
+	mar_msg = append(mar_msg, msg_round...)
+	mar_msg = append(mar_msg, msg_sequence...)
+	mar_msg = append(mar_msg, msg_content...)
+
+	hash, err := sha256.ComputeHash(mar_msg)
+	if err != nil {
+		panic("sha256 computeHash failed")
+	}
+
+	sig, err := myecdsa.SignECDSA(priv, hash)
+	if err != nil {
+		panic("myecdsa signECDSA failed")
+	}
+
+	msg.Signature = sig
+}
+
+func VerifySign(msg message.ConsMessage, priv *ecdsa.PrivateKey) bool {
+	msg_type, _ := json.Marshal(msg.Type)
+	msg_proposer, _ := json.Marshal(msg.Proposer)
+	msg_round, _ := json.Marshal(msg.Round)
+	msg_sequence, _ := json.Marshal(msg.Sequence)
+	msg_content, _ := json.Marshal(msg.Content)
+	mar_msg := append(msg_type, msg_proposer...)
+	mar_msg = append(mar_msg, msg_round...)
+	mar_msg = append(mar_msg, msg_sequence...)
+	mar_msg = append(mar_msg, msg_content...)
+
+	hash, err := sha256.ComputeHash(mar_msg)
+	if err != nil {
+		panic("sha256 computeHash failed")
+	}
+
+	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, msg.Signature, hash)
+
+	if err != nil {
+		fmt.Println("Failed to verify a message: ", err)
+	}
+
+	return b
 }
