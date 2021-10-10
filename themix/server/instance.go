@@ -89,7 +89,7 @@ type instance struct {
 	lock         sync.Mutex
 }
 
-func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, sequence uint64, n uint64, thld uint64) *instance {
+func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pkPath string, sequence uint64, n uint64, thld uint64) *instance {
 	inst := &instance{
 		lg:           lg,
 		tp:           tp,
@@ -116,7 +116,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, se
 		numCoin:      make([]uint64, maxround),
 		lock:         sync.Mutex{}}
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
-	inst.priv, _ = myecdsa.LoadKey("../../../crypto/")
+	inst.priv, _ = myecdsa.LoadKey(pkPath)
 	for i := 0; i < maxround; i++ {
 		inst.bvalZeroMsgs[i] = make([]*message.ConsMessage, n)
 		inst.bvalOneMsgs[i] = make([]*message.ConsMessage, n)

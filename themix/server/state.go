@@ -30,6 +30,7 @@ type state struct {
 	lg        *zap.Logger
 	tp        transport.Transport
 	blsSig    *bls.BlsSig
+	pkPath    string
 	proposer  *Proposer
 	id        info.IDType
 	n         uint64
@@ -43,6 +44,7 @@ type state struct {
 func initState(lg *zap.Logger,
 	tp transport.Transport,
 	blsSig *bls.BlsSig,
+	pkPath string,
 	id info.IDType,
 	proposer *Proposer,
 	n uint64, repc chan []byte) *state {
@@ -50,6 +52,7 @@ func initState(lg *zap.Logger,
 		lg:        lg,
 		tp:        tp,
 		blsSig:    blsSig,
+		pkPath:    pkPath,
 		id:        id,
 		proposer:  proposer,
 		n:         n,
@@ -72,7 +75,7 @@ func (st *state) insertMsg(msg *message.ConsMessage) {
 		if st.collected <= msg.Sequence {
 			st.lock.RUnlock()
 
-			exec := initACS(st, st.lg, st.tp, st.blsSig, st.proposer, msg.Sequence, st.n, st.reqc)
+			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.Sequence, st.n, st.reqc)
 
 			st.lock.Lock()
 			if e, ok := st.execs[msg.Sequence]; ok {

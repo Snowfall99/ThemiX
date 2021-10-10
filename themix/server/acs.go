@@ -44,6 +44,7 @@ func initACS(st *state,
 	lg *zap.Logger,
 	tp transport.Transport,
 	blsSig *bls.BlsSig,
+	pkPath string,
 	proposer *Proposer,
 	seq uint64, n uint64,
 	reqc chan *message.ConsMessage) *asyncCommSubset {
@@ -58,7 +59,7 @@ func initACS(st *state,
 		lock:      sync.Mutex{}}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
-		re.instances[i] = initInstance(lg, tp, blsSig, seq, n, re.thld)
+		re.instances[i] = initInstance(lg, tp, blsSig, pkPath, seq, n, re.thld)
 	}
 	return re
 }

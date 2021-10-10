@@ -15,10 +15,9 @@
 package main
 
 import (
-	"bufio"
-	"flag"
+	"encoding/json"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -54,6 +53,15 @@ func removeLastRune(s string) string {
 	return string(r[:len(r)-1])
 }
 
+type Configuration struct {
+	Id      uint64 `json:"id"`
+	Port    int    `json:"port"`
+	Address string `json:"adress"`
+	Key     string `json:"key_path"`
+	Cluster string `json:"cluster"`
+	Pk      string `json:"pk"`
+}
+
 func main() {
 
 	// loggerMgr := initZapLog()
@@ -62,17 +70,28 @@ func main() {
 	// logger := loggerMgr.Sugar()
 	// logger.Debug("START!")
 
-	id := flag.Uint64("id", 0, "process ID")
-	port := flag.Int("port", 11200, "port for themix server")
-	keys := flag.String("keys", "keys", "the folder sotring keys")
-	cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
-	clusterFile := flag.String("cluster-file", "address", "cluster members defined in the given file")
+	// id := flag.Uint64("id", 0, "process ID")
+	// port := flag.Int("port", 11200, "port for themix server")
+	// keys := flag.String("keys", "keys", "the folder sotring keys")
+	// cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
+	// clusterFile := flag.String("cluster-file", "address", "cluster members defined in the given file")
 	// number := flag.Int("number", 10000, "number for benchmark test")
 	// size := flag.Int("size", 10000, "content size for benchmark test")
-	flag.Parse()
+	// flag.Parse()
 
-	addrs := []string{}
-	lg, err := newLogger(int(*id))
+	jsonFile, err := os.Open("node.json")
+	if err != nil {
+		fmt.Println("Open json file error: ", err)
+		return
+	}
+	defer jsonFile.Close()
+
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	var config Configuration
+	json.Unmarshal([]byte(byteValue), &config)
+
+	lg, err := newLogger(int(config.Id))
 	defer lg.Sync()
 
 	if err != nil {
@@ -80,37 +99,41 @@ func main() {
 		return
 	}
 
-	file, err := os.Open(*clusterFile)
-	if err != nil {
-		fmt.Println(err)
-		addrs = strings.Split(*cluster, ",")
-	} else {
-		reader := bufio.NewReader(file)
-		for {
-			addr, err := reader.ReadString(' ')
-			if err != nil && err == io.EOF {
-				break
-			}
-			prt, err := reader.ReadString('\n')
-			if err != nil {
-				fmt.Println(err)
-			}
-			addr = "http://" + removeLastRune(addr) + ":" + removeLastRune(prt)
-			addrs = append(addrs, addr)
-		}
-	}
-	defer file.Close()
+	addrs := strings.Split(config.Cluster, ",")
 
-	fmt.Printf("%d %s %d\n", *id, addrs, len(addrs))
+	// file, err := os.Open(*clusterFile)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	addrs = strings.Split(*cluster, ",")
+	// } else {
+	// 	reader := bufio.NewReader(file)
+	// 	for {
+	// 		addr, err := reader.ReadString(' ')
+	// 		if err != nil && err == io.EOF {
+	// 			break
+	// 		}
+	// 		prt, err := reader.ReadString('\n')
+	// 		if err != nil {
+	// 			fmt.Println(err)
+	// 		}
+	// 		addr = "http://" + removeLastRune(addr) + ":" + removeLastRune(prt)
+	// 		addrs = append(addrs, addr)
+	// 	}
+	// }
+	// defer file.Close()
 
-	bls, err := bls.InitBLS(*keys, len(addrs), int(len(addrs)/2+1), int(*id))
+	fmt.Printf("%d %s %d\n", config.Id, addrs, len(addrs))
+
+	bls, err := bls.InitBLS(config.Key, len(addrs), int(len(addrs)/2+1), int(config.Id))
 
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	server.InitNode(lg, bls, info.IDType(*id), uint64(len(addrs)), *port, addrs)
+	pk := config.Pk
+
+	server.InitNode(lg, bls, pk, info.IDType(config.Id), uint64(len(addrs)), config.Port, addrs)
 
 	// time.Sleep(5 * time.Second)
 
