@@ -31,13 +31,13 @@ type Node struct {
 }
 
 // InitNode initiate a node for processing messages
-func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id info.IDType, n uint64, port int, addresses []string) {
+func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id info.IDType, n uint64, port int, addresses []string, batchsize int, coordinator string) {
 
 	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, addresses)
 
-	proposer := initProposer(lg, tp, id, reqc)
+	proposer := initProposer(lg, tp, id, reqc, coordinator)
 
-	state := initState(lg, tp, blsSig, pkPath, id, proposer, n, repc)
+	state := initState(lg, tp, blsSig, pkPath, id, proposer, n, repc, batchsize, coordinator)
 
 	for i := 0; i < runtime.NumCPU()-1; i++ {
 		go func() {

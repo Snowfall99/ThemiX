@@ -15,6 +15,9 @@
 package server
 
 import (
+	"fmt"
+	"net"
+	"strconv"
 	"sync"
 
 	"go.themix.io/transport"
@@ -25,16 +28,17 @@ import (
 
 // Proposer is responsible for proposing requests
 type Proposer struct {
-	lg   *zap.Logger
-	reqc chan []byte
-	tp   transport.Transport
-	seq  uint64
-	id   info.IDType
-	lock sync.Mutex
+	lg          *zap.Logger
+	reqc        chan []byte
+	tp          transport.Transport
+	seq         uint64
+	id          info.IDType
+	lock        sync.Mutex
+	coordinator string
 }
 
-func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc chan []byte) *Proposer {
-	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}}
+func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc chan []byte, coordinator string) *Proposer {
+	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}, coordinator: coordinator}
 	go proposer.run()
 	return proposer
 }
@@ -72,6 +76,20 @@ func (proposer *Proposer) propose(request []byte) {
 			zap.Int("proposer", int(msg.Proposer)),
 			zap.Int("seq", int(msg.Sequence)),
 			zap.Int("content", int(msg.Content[0])))
+	}
+
+	// send propose to coordinator
+	conn, err := net.Dial("tcp", proposer.coordinator)
+	if err != nil {
+		fmt.Println("err dialing: ", err.Error())
+		return
+	}
+	defer conn.Close()
+	data := "start " + strconv.FormatUint(msg.Sequence, 10)
+	_, err = conn.Write([]byte(data))
+	if err != nil {
+		fmt.Println("send propose to coordinator failed: ", err.Error())
+		return
 	}
 
 	proposer.seq++
