@@ -40,7 +40,7 @@ type asyncCommSubset struct {
 	proposer      *Proposer
 	reqc          chan *message.ConsMessage
 	lock          sync.Mutex
-	coordinator   string
+	coordinator   net.Conn
 }
 
 func initACS(st *state,
@@ -51,7 +51,7 @@ func initACS(st *state,
 	proposer *Proposer,
 	seq uint64, n uint64,
 	reqc chan *message.ConsMessage,
-	coordinator string) *asyncCommSubset {
+	coordinator net.Conn) *asyncCommSubset {
 	re := &asyncCommSubset{
 		st:          st,
 		lg:          lg,
@@ -107,14 +107,8 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 					acs.reqc <- proposal
 
 					// send execute message to coordinator
-					conn, err := net.Dial("tcp", acs.coordinator)
-					if err != nil {
-						fmt.Println("send execute message to corrdinator failed: ", err.Error())
-						return
-					}
-					defer conn.Close()
 					data := "end " + strconv.FormatUint(msg.Sequence, 10)
-					_, err = conn.Write([]byte(data))
+					_, err := acs.coordinator.Write([]byte(data))
 					if err != nil {
 						fmt.Println("send execute message to coordinator failed: ", err.Error())
 						return

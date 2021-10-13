@@ -34,10 +34,10 @@ type Proposer struct {
 	seq         uint64
 	id          info.IDType
 	lock        sync.Mutex
-	coordinator string
+	coordinator net.Conn
 }
 
-func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc chan []byte, coordinator string) *Proposer {
+func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc chan []byte, coordinator net.Conn) *Proposer {
 	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}, coordinator: coordinator}
 	go proposer.run()
 	return proposer
@@ -79,14 +79,8 @@ func (proposer *Proposer) propose(request []byte) {
 	}
 
 	// send propose to coordinator
-	conn, err := net.Dial("tcp", proposer.coordinator)
-	if err != nil {
-		fmt.Println("err dialing: ", err.Error())
-		return
-	}
-	defer conn.Close()
 	data := "start " + strconv.FormatUint(msg.Sequence, 10)
-	_, err = conn.Write([]byte(data))
+	_, err := proposer.coordinator.Write([]byte(data))
 	if err != nil {
 		fmt.Println("send propose to coordinator failed: ", err.Error())
 		return

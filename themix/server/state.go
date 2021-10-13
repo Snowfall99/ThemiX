@@ -15,6 +15,7 @@
 package server
 
 import (
+	"net"
 	"sync"
 
 	"go.themix.io/crypto/bls"
@@ -37,7 +38,7 @@ type state struct {
 	lock        sync.RWMutex
 	reqc        chan *message.ConsMessage
 	repc        chan []byte
-	coordinator string
+	coordinator net.Conn
 }
 
 func initState(lg *zap.Logger,
@@ -47,7 +48,7 @@ func initState(lg *zap.Logger,
 	id info.IDType,
 	proposer *Proposer,
 	n uint64, repc chan []byte,
-	batchsize int, coordinator string) *state {
+	batchsize int, coordinator net.Conn) *state {
 	st := &state{
 		lg:          lg,
 		tp:          tp,

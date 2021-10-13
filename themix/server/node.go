@@ -15,6 +15,7 @@
 package server
 
 import (
+	"net"
 	"runtime"
 
 	"go.themix.io/crypto/bls"
@@ -31,7 +32,7 @@ type Node struct {
 }
 
 // InitNode initiate a node for processing messages
-func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id info.IDType, n uint64, port int, addresses []string, batchsize int, coordinator string) {
+func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id info.IDType, n uint64, port int, addresses []string, batchsize int, coordinator net.Conn) {
 
 	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, addresses)
 

@@ -16,11 +16,13 @@ func handle(conn net.Conn, logger *log.Logger) { //处理连接方法
 			fmt.Println(err)
 			return
 		}
+
 		logger.Println(string(buf[0:n]))
 	}
 }
+
 func main() {
-	fmt.Println("start server....")
+	fmt.Println("start coordinator...")
 	listen, err := net.Listen("tcp", "0.0.0.0:11300") //创建监听
 	if err != nil {
 		fmt.Println("listen failed! msg :", err)
@@ -28,7 +30,7 @@ func main() {
 	}
 
 	// init log
-	file, err := os.OpenFile("corrdinator.txt", os.O_WRONLY|os.O_CREATE, 0755)
+	file, err := os.OpenFile("coordinator.txt", os.O_WRONLY|os.O_CREATE, 0755)
 	if err != nil {
 		log.Fatalf("create log failed: %v\n", err)
 	}

@@ -17,6 +17,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -133,7 +134,15 @@ func main() {
 		return
 	}
 
-	server.InitNode(lg, bls, *pk, info.IDType(*id), uint64(len(addrs)), *port, addrs, *batchsize, *coordinator)
+	// init coordinator connection
+	conn, err := net.Dial("tcp", *coordinator)
+	if err != nil {
+		fmt.Println("net dialing failed: ", err.Error())
+		return
+	}
+	defer conn.Close()
+
+	server.InitNode(lg, bls, *pk, info.IDType(*id), uint64(len(addrs)), *port, addrs, *batchsize, conn)
 
 	// time.Sleep(5 * time.Second)
 
