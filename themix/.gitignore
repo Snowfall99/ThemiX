@@ -2,5 +2,7 @@ log/
 remote.sh
 local_address
 .DS_Store
+../.DS_Store
 *.txt
 main
+client

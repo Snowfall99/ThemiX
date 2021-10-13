@@ -16,8 +16,6 @@ package server
 
 import (
 	"fmt"
-	"net"
-	"strconv"
 	"sync"
 
 	"go.themix.io/crypto/bls"
@@ -40,7 +38,7 @@ type asyncCommSubset struct {
 	proposer      *Proposer
 	reqc          chan *message.ConsMessage
 	lock          sync.Mutex
-	coordinator   net.Conn
+	// coordinator   net.Conn
 }
 
 func initACS(st *state,
@@ -50,18 +48,18 @@ func initACS(st *state,
 	pkPath string,
 	proposer *Proposer,
 	seq uint64, n uint64,
-	reqc chan *message.ConsMessage,
-	coordinator net.Conn) *asyncCommSubset {
+	reqc chan *message.ConsMessage) *asyncCommSubset {
 	re := &asyncCommSubset{
-		st:          st,
-		lg:          lg,
-		proposer:    proposer,
-		n:           n,
-		sequence:    seq,
-		instances:   make([]*instance, n),
-		reqc:        reqc,
-		lock:        sync.Mutex{},
-		coordinator: coordinator}
+		st:        st,
+		lg:        lg,
+		proposer:  proposer,
+		n:         n,
+		sequence:  seq,
+		instances: make([]*instance, n),
+		reqc:      reqc,
+		lock:      sync.Mutex{},
+		//coordinator: coordinator
+	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
 		re.instances[i] = initInstance(lg, tp, blsSig, pkPath, seq, n, re.thld)
@@ -106,13 +104,13 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
 					acs.reqc <- proposal
 
-					// send execute message to coordinator
-					data := "end " + strconv.FormatUint(msg.Sequence, 10)
-					_, err := acs.coordinator.Write([]byte(data))
-					if err != nil {
-						fmt.Println("send execute message to coordinator failed: ", err.Error())
-						return
-					}
+					// // send execute message to coordinator
+					// data := "end " + strconv.FormatUint(msg.Sequence, 10)
+					// _, err := acs.coordinator.Write([]byte(data))
+					// if err != nil {
+					// 	fmt.Println("send execute message to coordinator failed: ", err.Error())
+					// 	return
+					// }
 				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
 					inst.lg.Info("repropose",
 						zap.Int("proposer", int(proposal.Proposer)),

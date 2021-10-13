@@ -17,7 +17,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 
@@ -75,7 +74,7 @@ func main() {
 	pk := flag.String("pk", "pk", "the folder storing pk")
 	cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
 	batchsize := flag.Int("batch", 1, "the max batchsize")
-	coordinator := flag.String("coordinator", "http://127.0.0.1:11300", "coordinator address")
+	// coordinator := flag.String("coordinator", "http://127.0.0.1:11300", "coordinator address")
 	// coordinator_port := flag.Int("cport", 12200, "coordinator port")
 	// clusterFile := flag.String("cluster-file", "address", "cluster members defined in the given file")
 	// number := flag.Int("number", 10000, "number for benchmark test")
@@ -134,15 +133,15 @@ func main() {
 		return
 	}
 
-	// init coordinator connection
-	conn, err := net.Dial("tcp", *coordinator)
-	if err != nil {
-		fmt.Println("net dialing failed: ", err.Error())
-		return
-	}
-	defer conn.Close()
+	// // init coordinator connection
+	// conn, err := net.Dial("tcp", *coordinator)
+	// if err != nil {
+	// 	fmt.Println("net dialing failed: ", err.Error())
+	// 	return
+	// }
+	// defer conn.Close()
 
-	server.InitNode(lg, bls, *pk, info.IDType(*id), uint64(len(addrs)), *port, addrs, *batchsize, conn)
+	server.InitNode(lg, bls, *pk, info.IDType(*id), uint64(len(addrs)), *port, addrs, *batchsize)
 
 	// time.Sleep(5 * time.Second)
 
