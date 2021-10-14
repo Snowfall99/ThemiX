@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <curl/curl.h>
 #include <sys/time.h>
 
@@ -10,11 +11,29 @@ void curl_init(CURL *curl, char *addr, char* payload) {
 
 int main(int argc, char** argv) {
     int requests = atoi(argv[1]);
-    char* url0 = argv[2];
-    char* url1 = argv[3];
-    char* url2 = argv[4];
-    char* url3 = argv[5];
-    char* url4 = argv[6];
+    char url0[100];
+    char url1[100];
+    char url2[100];
+    char url3[100];
+    char url4[100];
+    FILE *addrp = NULL;
+    addrp = fopen("address", "r+");
+    if (!addrp) {
+        printf("open address failed\n");
+        return 0;
+    }
+    fgets(url0, sizeof(url0), addrp);
+    fgets(url1, sizeof(url1), addrp);
+    fgets(url2, sizeof(url2), addrp);
+    fgets(url3, sizeof(url3), addrp);
+    fgets(url4, sizeof(url4), addrp);
+    url0[strlen(url0)-1] = '\0';
+    url1[strlen(url1)-1] = '\0';
+    url2[strlen(url2)-1] = '\0';
+    url3[strlen(url3)-1] = '\0';
+    url4[strlen(url4)-1] = '\0';
+    fclose(addrp);
+
     printf("requets: %d\n", requests);
     CURLcode res;
     time_t start;
