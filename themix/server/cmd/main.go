@@ -53,6 +53,7 @@ func removeLastRune(s string) string {
 
 type Configuration struct {
 	Id      uint64 `json:"id"`
+	Batch   int    `json:"batchsize"`
 	Port    int    `json:"port"`
 	Address string `json:"adress"`
 	Key     string `json:"key_path"`

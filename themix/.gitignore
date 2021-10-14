@@ -6,4 +6,4 @@ local_address
 *.txt
 main
 client
-__pycache__/*
+helper/__pycache__/*
