@@ -89,55 +89,55 @@ int main(int argc, char** argv) {
             char start_str[100], end_str[100];
 
             gettimeofday(&tv, NULL);
-            sprintf(start_str, "%d start: %ld", 5*i, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(start_str, "%03d start: %ld", 5*i, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", start_str);
             res = curl_easy_perform(curl0);
             gettimeofday(&tv, NULL);
-            sprintf(end_str, "%d end: %ld", 5*i, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(end_str, "%03d end: %ld", 5*i, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", end_str);
             if (res != CURLE_OK) {
                 fprintf(stderr, "curl_easy_perform failed: %s\n", curl_easy_strerror(res));
             }
 
             gettimeofday(&tv, NULL);
-            sprintf(start_str, "%d start: %ld", 5*i+1, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(start_str, "%03d start: %ld", 5*i+1, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", start_str);
             res = curl_easy_perform(curl1);
             gettimeofday(&tv, NULL);
-            sprintf(end_str, "%d end: %ld", 5*i+1, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(end_str, "%03d end: %ld", 5*i+1, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", end_str);
             if (res != CURLE_OK) {
                 fprintf(stderr, "curl_easy_perform failed: %s\n", curl_easy_strerror(res));
             }
 
             gettimeofday(&tv, NULL);
-            sprintf(start_str, "%d start: %ld", 5*i+2, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(start_str, "%03d start: %ld", 5*i+2, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", start_str);
             res = curl_easy_perform(curl2);
             gettimeofday(&tv, NULL);
-            sprintf(end_str, "%d end: %ld", 5*i+2, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(end_str, "%03d end: %ld", 5*i+2, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", end_str);
             if (res != CURLE_OK) {
                 fprintf(stderr, "curl_easy_perform failed: %s\n", curl_easy_strerror(res));
             }
 
             gettimeofday(&tv, NULL);
-            sprintf(start_str, "%d start: %ld", 5*i+3, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(start_str, "%03d start: %ld", 5*i+3, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", start_str);
             res = curl_easy_perform(curl3);
             gettimeofday(&tv, NULL);
-            sprintf(end_str, "%d end: %ld", 5*i+3, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(end_str, "%03d end: %ld", 5*i+3, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", end_str);
             if (res != CURLE_OK) {
                 fprintf(stderr, "curl_easy_perform failed: %s\n", curl_easy_strerror(res));
             }
 
             gettimeofday(&tv, NULL);
-            sprintf(start_str, "%d start: %ld", 5*i+4, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(start_str, "%03d start: %ld", 5*i+4, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", start_str);
             res = curl_easy_perform(curl4);
             gettimeofday(&tv, NULL);
-            sprintf(end_str, "%d end: %ld", 5*i+4, (tv.tv_sec*1000 + tv.tv_usec/1000));
+            sprintf(end_str, "%03d end: %ld", 5*i+4, (tv.tv_sec*1000 + tv.tv_usec/1000));
             fprintf(fp, "%s\n", end_str);
             if (res != CURLE_OK) {
                 fprintf(stderr, "curl_easy_perform failed: %s\n", curl_easy_strerror(res));
