@@ -15,8 +15,11 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 
@@ -69,11 +72,11 @@ func main() {
 	// logger := loggerMgr.Sugar()
 	// logger.Debug("START!")
 
-	id := flag.Uint64("id", 0, "process ID")
-	port := flag.Int("port", 11200, "port for themix server")
-	keys := flag.String("keys", "keys", "the folder sotring keys")
-	pk := flag.String("pk", "pk", "the folder storing pk")
-	cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
+	// id := flag.Uint64("id", 0, "process ID")
+	// port := flag.Int("port", 11200, "port for themix server")
+	// keys := flag.String("keys", "keys", "the folder sotring keys")
+	// pk := flag.String("pk", "pk", "the folder storing pk")
+	// cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
 	batchsize := flag.Int("batch", 1, "the max batchsize")
 	// coordinator := flag.String("coordinator", "http://127.0.0.1:11300", "coordinator address")
 	// coordinator_port := flag.Int("cport", 12200, "coordinator port")
@@ -82,19 +85,19 @@ func main() {
 	// size := flag.Int("size", 10000, "content size for benchmark test")
 	flag.Parse()
 
-	// jsonFile, err := os.Open("node.json")
-	// if err != nil {
-	// 	fmt.Println("Open json file error: ", err)
-	// 	return
-	// }
-	// defer jsonFile.Close()
+	jsonFile, err := os.Open("node.json")
+	if err != nil {
+		fmt.Println("Open json file error: ", err)
+		return
+	}
+	defer jsonFile.Close()
 
-	// byteValue, _ := ioutil.ReadAll(jsonFile)
+	byteValue, _ := ioutil.ReadAll(jsonFile)
 
-	// var config Configuration
-	// json.Unmarshal([]byte(byteValue), &config)
+	var config Configuration
+	json.Unmarshal([]byte(byteValue), &config)
 
-	lg, err := newLogger(int(*id))
+	lg, err := newLogger(int(config.Id))
 	defer lg.Sync()
 
 	if err != nil {
@@ -102,7 +105,7 @@ func main() {
 		return
 	}
 
-	addrs := strings.Split(*cluster, ",")
+	addrs := strings.Split(config.Cluster, ",")
 
 	// file, err := os.Open(*clusterFile)
 	// if err != nil {
@@ -125,9 +128,9 @@ func main() {
 	// }
 	// defer file.Close()
 
-	fmt.Printf("%d %s %d\n", id, addrs, len(addrs))
+	fmt.Printf("%d %s %d\n", config.Id, addrs, len(addrs))
 
-	bls, err := bls.InitBLS(*keys, len(addrs), int(len(addrs)/2+1), int(*id))
+	bls, err := bls.InitBLS(config.Key, len(addrs), int(len(addrs)/2+1), int(config.Id))
 
 	if err != nil {
 		fmt.Println(err)
@@ -142,7 +145,7 @@ func main() {
 	// }
 	// defer conn.Close()
 
-	server.InitNode(lg, bls, *pk, info.IDType(*id), uint64(len(addrs)), *port, addrs, *batchsize)
+	server.InitNode(lg, bls, config.Pk, info.IDType(config.Id), uint64(len(addrs)), config.Port, addrs, *batchsize)
 
 	// time.Sleep(5 * time.Second)
 
