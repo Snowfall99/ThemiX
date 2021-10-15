@@ -15,6 +15,8 @@ import (
 
 func main() {
 	requests := flag.Int("requests", 1, "requests number")
+	flag.Parse()
+	fmt.Println("requests: ", *requests)
 
 	file, err := os.Open("address")
 	if err != nil {
@@ -68,13 +70,10 @@ func main() {
 		mh.AddHandle(ch4)
 
 		s := time.Now().UnixNano() / 1000000
-		for {
-			running, _ := mh.Perform()
-			if running == 0 {
-				goto END
-			}
+		running := 1
+		for running != 0 {
+			running, _ = mh.Perform()
 		}
-	END:
 		e := time.Now().UnixNano() / 1000000
 		str := strconv.Itoa(i) + " start: " + strconv.FormatInt(s, 10) + " end: " + strconv.FormatInt(e, 10)
 		_, err := io.WriteString(coordinator, str)
