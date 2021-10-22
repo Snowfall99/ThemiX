@@ -42,49 +42,92 @@ func main() {
 
 	start := time.Now()
 	for i := 0; i < *requests; i++ {
-		mh := curl.MultiInit()
-		ch0 := curl.EasyInit()
-		ch1 := curl.EasyInit()
-		ch2 := curl.EasyInit()
-		ch3 := curl.EasyInit()
-		ch4 := curl.EasyInit()
+		go sendRequests(i, coordinator, url0, url1, url2, url3, url4)
+		// mh := curl.MultiInit()
+		// ch0 := curl.EasyInit()
+		// ch1 := curl.EasyInit()
+		// ch2 := curl.EasyInit()
+		// ch3 := curl.EasyInit()
+		// ch4 := curl.EasyInit()
 
-		ch0.Setopt(curl.OPT_URL, url0)
-		ch0.Setopt(curl.OPT_POSTFIELDS, "a")
-		mh.AddHandle(ch0)
+		// ch0.Setopt(curl.OPT_URL, url0)
+		// ch0.Setopt(curl.OPT_POSTFIELDS, "a")
+		// mh.AddHandle(ch0)
 
-		ch1.Setopt(curl.OPT_URL, url1)
-		ch1.Setopt(curl.OPT_POSTFIELDS, "a")
-		mh.AddHandle(ch1)
+		// ch1.Setopt(curl.OPT_URL, url1)
+		// ch1.Setopt(curl.OPT_POSTFIELDS, "a")
+		// mh.AddHandle(ch1)
 
-		ch2.Setopt(curl.OPT_URL, url2)
-		ch2.Setopt(curl.OPT_POSTFIELDS, "a")
-		mh.AddHandle(ch2)
+		// ch2.Setopt(curl.OPT_URL, url2)
+		// ch2.Setopt(curl.OPT_POSTFIELDS, "a")
+		// mh.AddHandle(ch2)
 
-		ch3.Setopt(curl.OPT_URL, url3)
-		ch3.Setopt(curl.OPT_POSTFIELDS, "a")
-		mh.AddHandle(ch3)
+		// ch3.Setopt(curl.OPT_URL, url3)
+		// ch3.Setopt(curl.OPT_POSTFIELDS, "a")
+		// mh.AddHandle(ch3)
 
-		ch4.Setopt(curl.OPT_URL, url4)
-		ch4.Setopt(curl.OPT_POSTFIELDS, "a")
-		mh.AddHandle(ch4)
+		// ch4.Setopt(curl.OPT_URL, url4)
+		// ch4.Setopt(curl.OPT_POSTFIELDS, "a")
+		// mh.AddHandle(ch4)
 
-		s := time.Now().UnixNano() / 1000000
-		running := 1
-		for running != 0 {
-			running, _ = mh.Perform()
-		}
-		e := time.Now().UnixNano() / 1000000
-		str := strconv.Itoa(i) + " start: " + strconv.FormatInt(s, 10) + " end: " + strconv.FormatInt(e, 10)
-		_, err := io.WriteString(coordinator, str)
-		if err != nil {
-			fmt.Println("write to coordinator failed: ", err.Error())
-			return
-		}
-		fmt.Println(str)
+		// s := time.Now().UnixNano() / 1000000
+		// running := 1
+		// for running != 0 {
+		// 	running, _ = mh.Perform()
+		// }
+		// e := time.Now().UnixNano() / 1000000
+		// str := strconv.Itoa(i) + " start: " + strconv.FormatInt(s, 10) + " end: " + strconv.FormatInt(e, 10)
+		// _, err := io.WriteString(coordinator, str)
+		// if err != nil {
+		// 	fmt.Println("write to coordinator failed: ", err.Error())
+		// 	return
+		// }
+		// fmt.Println(str)
 	}
 	end := time.Now()
 
 	fmt.Println("start: ", start)
 	fmt.Println("end: ", end)
+}
+
+func sendRequests(i int, coordinator *os.File, url0 string, url1 string, url2 string, url3 string, url4 string) {
+	mh := curl.MultiInit()
+	ch0 := curl.EasyInit()
+	ch1 := curl.EasyInit()
+	ch2 := curl.EasyInit()
+	ch3 := curl.EasyInit()
+	ch4 := curl.EasyInit()
+
+	ch0.Setopt(curl.OPT_URL, url0)
+	ch0.Setopt(curl.OPT_POSTFIELDS, "a")
+	mh.AddHandle(ch0)
+
+	ch1.Setopt(curl.OPT_URL, url1)
+	ch1.Setopt(curl.OPT_POSTFIELDS, "a")
+	mh.AddHandle(ch1)
+
+	ch2.Setopt(curl.OPT_URL, url2)
+	ch2.Setopt(curl.OPT_POSTFIELDS, "a")
+	mh.AddHandle(ch2)
+
+	ch3.Setopt(curl.OPT_URL, url3)
+	ch3.Setopt(curl.OPT_POSTFIELDS, "a")
+	mh.AddHandle(ch3)
+
+	ch4.Setopt(curl.OPT_URL, url4)
+	ch4.Setopt(curl.OPT_POSTFIELDS, "a")
+	mh.AddHandle(ch4)
+
+	s := time.Now().UnixNano() / 1000000
+	running := 1
+	for running != 0 {
+		running, _ = mh.Perform()
+	}
+	e := time.Now().UnixNano() / 1000000
+	str := strconv.Itoa(i) + " start: " + strconv.FormatInt(s, 10) + " end: " + strconv.FormatInt(e, 10) + "\n"
+	_, err := io.WriteString(coordinator, str)
+	if err != nil {
+		fmt.Println("write to coordinator failed: ", err.Error())
+		return
+	}
 }
