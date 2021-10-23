@@ -38,7 +38,6 @@ type asyncCommSubset struct {
 	proposer      *Proposer
 	reqc          chan *message.ConsMessage
 	lock          sync.Mutex
-	// coordinator   net.Conn
 }
 
 func initACS(st *state,
@@ -103,14 +102,11 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 						zap.Int("content", int(proposal.Content[0])))
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
 					acs.reqc <- proposal
-
-					// // send execute message to coordinator
-					// data := "end " + strconv.FormatUint(msg.Sequence, 10)
-					// _, err := acs.coordinator.Write([]byte(data))
-					// if err != nil {
-					// 	fmt.Println("send execute message to coordinator failed: ", err.Error())
-					// 	return
-					// }
+					acs.numFinished++
+					if acs.numFinished == acs.n {
+						acs.instances = nil
+						acs.st.collected++
+					}
 				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
 					inst.lg.Info("repropose",
 						zap.Int("proposer", int(proposal.Proposer)),
