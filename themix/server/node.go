@@ -43,12 +43,18 @@ func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id info.IDType,
 		go func() {
 			for {
 				msg := <-msgc
+				if msg.Sequence < state.collected {
+					continue
+				}
 				state.insertMsg(msg)
 			}
 		}()
 	}
 	for {
 		msg := <-msgc
+		if msg.Sequence < state.collected {
+			continue
+		}
 		state.insertMsg(msg)
 	}
 }
