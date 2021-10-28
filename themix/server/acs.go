@@ -67,9 +67,6 @@ func initACS(st *state,
 }
 
 func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
-	if acs.instances == nil {
-		return
-	}
 	isDecided, isFinished := acs.instances[msg.Proposer].insertMsg(msg)
 	if isDecided {
 		acs.lock.Lock()
@@ -107,8 +104,11 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 					acs.reqc <- proposal
 					acs.numFinished++
 					if acs.numFinished == acs.n {
-						acs.instances = nil
-						acs.st.collected++
+						acs.st.lock.Lock()
+						delete(acs.st.execs, acs.sequence)
+						acs.st.lock.Unlock()
+						// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
+						// }
 					}
 				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
 					inst.lg.Info("repropose",
