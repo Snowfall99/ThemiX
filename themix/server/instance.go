@@ -133,10 +133,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	inst.lock.Lock()
 	defer inst.lock.Unlock()
 
-	// Just for test
-	if msg.Round > 0 {
-		return false, false
-	}
+	// // Just for test
+	// if msg.Round > 0 {
+	// 	return false, false
+	// }
 
 	if inst.isFinished {
 		return false, false
@@ -717,6 +717,7 @@ func (inst *instance) isReadyToSendCoin() {
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 	if inst.hasSentCoin &&
 		inst.numCoin[inst.round] > inst.f &&
+		len(inst.coinMsgs[inst.round]) > int(inst.f) &&
 		inst.numCon[inst.round] > inst.f &&
 		inst.proposal != nil &&
 		(inst.numReady >= inst.thld || inst.fastRBC) &&

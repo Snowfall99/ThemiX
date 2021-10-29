@@ -85,12 +85,12 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 			acs.numDecidedOne++
 		}
 
-		// Just for test
-		// if acs.numDecidedOne == acs.thld {
-		// 	for i, inst := range acs.instances {
-		// 		inst.canVoteZero(info.IDType(i), acs.sequence)
-		// 	}
-		// }
+		// // Just for test
+		if acs.numDecidedOne == acs.thld {
+			for i, inst := range acs.instances {
+				inst.canVoteZero(info.IDType(i), acs.sequence)
+			}
+		}
 
 		if acs.numDecided == acs.n {
 			for _, inst := range acs.instances {
@@ -106,9 +106,10 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 					if acs.numFinished == acs.n {
 						acs.st.lock.Lock()
 						delete(acs.st.execs, acs.sequence)
-						acs.st.lock.Unlock()
 						// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
 						// }
+						acs.st.collected++
+						acs.st.lock.Unlock()
 					}
 				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
 					inst.lg.Info("repropose",
@@ -125,12 +126,12 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 			}
 		}
 	} else if isFinished {
-		acs.lock.Lock()
-		defer acs.lock.Unlock()
+		// acs.lock.Lock()
+		// defer acs.lock.Unlock()
 
-		acs.numFinished++
-		if acs.numFinished == acs.n {
-			acs.st.garbageCollect(acs.sequence)
-		}
+		// acs.numFinished++
+		// if acs.numFinished == acs.n {
+		// 	acs.st.garbageCollect(acs.sequence)
+		// }
 	}
 }
