@@ -207,16 +207,18 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if inst.numEcho == inst.f+1 {
 			// start tmrR
 			inst.startR = true
-			inst.tmrR = *time.NewTimer(2 * time.Second)
+			inst.tmrR = *time.NewTimer(1 * time.Second)
 			go func() {
 				<-inst.tmrR.C
 				// upon receiving f+1 ECHO(v)* and tmrR expires
 				// if have not received any VAL(v') (v' != v) then
 				// broadcast READY(v)i
 				if inst.numEcho >= inst.f+1 {
-					content := inst.proposal.Content
+					var content []byte
 					for _, msg := range inst.valMsgs {
-						if msg != nil && !bytes.Equal(content, msg.Content) {
+						if msg != nil && content == nil {
+							content = msg.Content
+						} else if msg != nil && !bytes.Equal(content, msg.Content) {
 							return
 						}
 					}
@@ -407,7 +409,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if b && inst.round == msg.Round {
 			// start tmrS
 			inst.startS = true
-			inst.tmrS = *time.NewTimer(2 * time.Second)
+			inst.tmrS = *time.NewTimer(1 * time.Second)
 			go func() {
 				<-inst.tmrS.C
 				// if tmrS expires, canSkipCoin = false
@@ -478,7 +480,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] == inst.f+1 {
 			// start tmrB
 			inst.startB = true
-			inst.tmrB = *time.NewTimer(4 * time.Second)
+			inst.tmrB = *time.NewTimer(2 * time.Second)
 			go func() {
 				<-inst.tmrB.C
 				// upon receiving f+1 AUX(*, r) and f+1 BVAL(b, r)
@@ -723,7 +725,6 @@ func (inst *instance) isReadyToSendCoin() {
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 	if inst.hasSentCoin &&
 		inst.numCoin[inst.round] > inst.f &&
-		len(inst.coinMsgs[inst.round]) > int(inst.f) &&
 		inst.numCon[inst.round] > inst.f &&
 		inst.proposal != nil &&
 		(inst.numReady >= inst.thld || inst.fastRBC) &&
@@ -732,10 +733,15 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 			(inst.zeroEndorsed && inst.numAuxZero[inst.round] >= inst.thld) ||
 			(inst.oneEndorsed && inst.zeroEndorsed)) {
 		sigShares := make([][]byte, 0)
+		sigNum := 0
 		for _, m := range inst.coinMsgs[inst.round] {
 			if m != nil {
+				sigNum++
 				sigShares = append(sigShares, m.Content)
 			}
+		}
+		if sigNum <= int(inst.f) {
+			return false, false
 		}
 		coin := inst.blsSig.Recover(inst.getCoinInfo(), sigShares, int(inst.f+1), int(inst.n))
 

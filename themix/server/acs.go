@@ -102,15 +102,15 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 						zap.Int("content", int(proposal.Content[0])))
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
 					acs.reqc <- proposal
-					// acs.numFinished++
-					// if acs.numFinished == acs.n {
-					// 	acs.st.lock.Lock()
-					// 	delete(acs.st.execs, acs.sequence)
-					// 	// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
-					// 	// }
-					// 	acs.st.collected++
-					// 	acs.st.lock.Unlock()
-					// }
+					acs.numFinished++
+					if acs.numFinished == acs.n {
+						acs.st.lock.Lock()
+						delete(acs.st.execs, acs.sequence)
+						// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
+						// }
+						acs.st.collected++
+						acs.st.lock.Unlock()
+					}
 				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
 					inst.lg.Info("repropose",
 						zap.Int("proposer", int(proposal.Proposer)),
@@ -126,17 +126,17 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 			}
 		}
 	} else if isFinished {
-		acs.lock.Lock()
-		defer acs.lock.Unlock()
+		// acs.lock.Lock()
+		// defer acs.lock.Unlock()
 
-		acs.numFinished++
-		if acs.numFinished == acs.n {
-			acs.st.lock.Lock()
-			delete(acs.st.execs, acs.sequence)
-			// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
-			// }
-			acs.st.collected++
-			acs.st.lock.Unlock()
-		}
+		// acs.numFinished++
+		// if acs.numFinished == acs.n {
+		// 	acs.st.lock.Lock()
+		// 	delete(acs.st.execs, acs.sequence)
+		// 	// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
+		// 	// }
+		// 	acs.st.collected++
+		// 	acs.st.lock.Unlock()
+		// }
 	}
 }
