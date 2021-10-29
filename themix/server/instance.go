@@ -138,6 +138,12 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	// 	return false, false
 	// }
 
+	if inst.fastRBC {
+		if msg.Type == message.VAL || msg.Type == message.ECHO || msg.Type == message.READY {
+			return false, false
+		}
+	}
+
 	if inst.isFinished {
 		return false, false
 	}
