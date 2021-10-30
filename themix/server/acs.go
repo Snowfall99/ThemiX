@@ -85,12 +85,12 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 			acs.numDecidedOne++
 		}
 
-		// // Just for test
-		if acs.numDecidedOne == acs.thld {
-			for i, inst := range acs.instances {
-				inst.canVoteZero(info.IDType(i), acs.sequence)
-			}
-		}
+		// Just for test
+		// if acs.numDecidedOne == acs.thld {
+		// 	for i, inst := range acs.instances {
+		// 		inst.canVoteZero(info.IDType(i), acs.sequence)
+		// 	}
+		// }
 
 		if acs.numDecided == acs.n {
 			for _, inst := range acs.instances {
@@ -102,15 +102,14 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 						zap.Int("content", int(proposal.Content[0])))
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
 					acs.reqc <- proposal
-					acs.numFinished++
-					if acs.numFinished == acs.n {
-						acs.st.lock.Lock()
-						delete(acs.st.execs, acs.sequence)
-						// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
-						// }
-						acs.st.collected++
-						acs.st.lock.Unlock()
-					}
+
+					// // send execute message to coordinator
+					// data := "end " + strconv.FormatUint(msg.Sequence, 10)
+					// _, err := acs.coordinator.Write([]byte(data))
+					// if err != nil {
+					// 	fmt.Println("send execute message to coordinator failed: ", err.Error())
+					// 	return
+					// }
 				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
 					inst.lg.Info("repropose",
 						zap.Int("proposer", int(proposal.Proposer)),
@@ -126,17 +125,12 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 			}
 		}
 	} else if isFinished {
-		// acs.lock.Lock()
-		// defer acs.lock.Unlock()
+		acs.lock.Lock()
+		defer acs.lock.Unlock()
 
-		// acs.numFinished++
-		// if acs.numFinished == acs.n {
-		// 	acs.st.lock.Lock()
-		// 	delete(acs.st.execs, acs.sequence)
-		// 	// for _, b := acs.st.execs[acs.st.collected]; !b; acs.st.collected++ {
-		// 	// }
-		// 	acs.st.collected++
-		// 	acs.st.lock.Unlock()
-		// }
+		acs.numFinished++
+		if acs.numFinished == acs.n {
+			acs.st.garbageCollect(acs.sequence)
+		}
 	}
 }

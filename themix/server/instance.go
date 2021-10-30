@@ -134,14 +134,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	defer inst.lock.Unlock()
 
 	// // Just for test
-	// if msg.Round > 0 {
-	// 	return false, false
-	// }
-
-	if inst.fastRBC {
-		if msg.Type == message.VAL || msg.Type == message.ECHO || msg.Type == message.READY {
-			return false, false
-		}
+	if msg.Round > 0 {
+		return false, false
 	}
 
 	if inst.isFinished {
@@ -174,7 +168,9 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * start timer tmrR <- 2*delta
 	 */
 	case message.VAL:
-		inst.proposal = msg
+		if inst.proposal == nil {
+			inst.proposal = msg
+		}
 		hash, _ := sha256.ComputeHash(msg.Content)
 		inst.valMsgs[msg.From] = msg
 		if !inst.hasEcho {
@@ -187,7 +183,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			GetSign(m, inst.priv)
 			inst.tp.Broadcast(m)
 			inst.hasEcho = true
-			inst.tp.Broadcast(msg)
+			m = &message.ConsMessage{
+				Type:     message.VAL,
+				Proposer: msg.Proposer,
+				Sequence: msg.Sequence,
+				Content:  hash,
+			}
+			inst.tp.Broadcast(m)
 		}
 		inst.isReadyToSendCoin()
 		return inst.isReadyToEnterNewRound()
@@ -207,7 +209,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if inst.numEcho == inst.f+1 {
 			// start tmrR
 			inst.startR = true
-			inst.tmrR = *time.NewTimer(1 * time.Second)
+			inst.tmrR = *time.NewTimer(2 * time.Second)
 			go func() {
 				<-inst.tmrR.C
 				// upon receiving f+1 ECHO(v)* and tmrR expires
@@ -215,7 +217,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				// broadcast READY(v)i
 				if inst.numEcho >= inst.f+1 {
 					var content []byte
-					for _, msg := range inst.valMsgs {
+					for _, msg := range inst.echoMsgs {
 						if msg != nil && content == nil {
 							content = msg.Content
 						} else if msg != nil && !bytes.Equal(content, msg.Content) {
@@ -232,6 +234,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					inst.tp.Broadcast(m)
 				}
 			}()
+			inst.isReadyToSendCoin()
+			return inst.isReadyToEnterNewRound()
 		}
 		/*
 		 * upon receiving ECHO(v) from fast group
@@ -409,7 +413,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if b && inst.round == msg.Round {
 			// start tmrS
 			inst.startS = true
-			inst.tmrS = *time.NewTimer(1 * time.Second)
+			inst.tmrS = *time.NewTimer(2 * time.Second)
 			go func() {
 				<-inst.tmrS.C
 				// if tmrS expires, canSkipCoin = false
@@ -480,7 +484,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] == inst.f+1 {
 			// start tmrB
 			inst.startB = true
-			inst.tmrB = *time.NewTimer(2 * time.Second)
+			inst.tmrB = *time.NewTimer(4 * time.Second)
 			go func() {
 				<-inst.tmrB.C
 				// upon receiving f+1 AUX(*, r) and f+1 BVAL(b, r)
