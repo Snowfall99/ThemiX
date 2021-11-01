@@ -35,7 +35,7 @@ func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id info.IDType,
 
 	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, addresses)
 
-	proposer := initProposer(lg, tp, id, reqc)
+	proposer := initProposer(lg, tp, id, reqc, pkPath)
 
 	state := initState(lg, tp, blsSig, pkPath, id, proposer, n, repc, batchsize)
 

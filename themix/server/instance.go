@@ -142,6 +142,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		return false, false
 	}
 
+	if inst.fastRBC && msg.Type == message.READY {
+		return false, false
+	}
+
 	if len(msg.Content) > 0 {
 		inst.lg.Info("receive msg",
 			zap.String("type", msg.Type.GetName()),
@@ -168,9 +172,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * start timer tmrR <- 2*delta
 	 */
 	case message.VAL:
-		if inst.proposal == nil {
-			inst.proposal = msg
-		}
+		VerifySign(*msg, inst.priv)
+		inst.proposal = msg
 		hash, _ := sha256.ComputeHash(msg.Content)
 		inst.valMsgs[msg.From] = msg
 		if !inst.hasEcho {
@@ -184,10 +187,11 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.tp.Broadcast(m)
 			inst.hasEcho = true
 			m = &message.ConsMessage{
-				Type:     message.VAL,
-				Proposer: msg.Proposer,
-				Sequence: msg.Sequence,
-				Content:  hash,
+				Type:      message.VAL,
+				Proposer:  msg.Proposer,
+				Sequence:  msg.Sequence,
+				Content:   hash,
+				Signature: msg.Signature,
 			}
 			inst.tp.Broadcast(m)
 		}

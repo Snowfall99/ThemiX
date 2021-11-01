@@ -15,8 +15,10 @@
 package server
 
 import (
+	"crypto/ecdsa"
 	"sync"
 
+	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
 	"go.themix.io/transport/message"
@@ -31,11 +33,12 @@ type Proposer struct {
 	seq  uint64
 	id   info.IDType
 	lock sync.Mutex
-	// coordinator net.Conn
+	priv *ecdsa.PrivateKey
 }
 
-func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc chan []byte) *Proposer {
+func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc chan []byte, pkPath string) *Proposer {
 	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}}
+	proposer.priv, _ = myecdsa.LoadKey(pkPath)
 	go proposer.run()
 	return proposer
 }
@@ -67,12 +70,14 @@ func (proposer *Proposer) propose(request []byte) {
 		From:     proposer.id,
 		Sequence: proposer.seq,
 		Content:  request}
+	GetSign(msg, proposer.priv)
 
 	if len(request) > 0 {
 		proposer.lg.Info("propose",
 			zap.Int("proposer", int(msg.Proposer)),
 			zap.Int("seq", int(msg.Sequence)),
-			zap.Int("content", int(msg.Content[0])))
+			zap.Int("content", int(msg.Content[0])),
+			zap.Int("signature", int(msg.Signature[0])))
 	}
 
 	// // send propose to coordinator
