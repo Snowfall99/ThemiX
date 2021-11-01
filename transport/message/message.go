@@ -27,15 +27,20 @@ type MessageType uint8
 //	or in optimal case where f+1 BVAL matching BVAL messages are received from SG
 // COIN is coin message
 const (
-	VAL        MessageType = 0
-	ECHO       MessageType = 1
-	READY      MessageType = 2
-	BVAL       MessageType = 3
-	AUX        MessageType = 4
-	COIN       MessageType = 5
-	COLLECTION MessageType = 6
-	CON        MessageType = 7
-	SKIP       MessageType = 8
+	VAL                  MessageType = 0
+	ECHO                 MessageType = 1
+	READY                MessageType = 2
+	BVAL                 MessageType = 3
+	AUX                  MessageType = 4
+	COIN                 MessageType = 5
+	CON                  MessageType = 6
+	SKIP                 MessageType = 7
+	ECHO_COLLECTION      MessageType = 8
+	READY_COLLECTION     MessageType = 9
+	BVAL_ZERO_COLLECTION MessageType = 10
+	BVAL_ONE_COLLECTION  MessageType = 11
+	AUX_ZERO_COLLECTION  MessageType = 12
+	AUX_ONE_COLLECTION   MessageType = 13
 )
 
 // ConsMessage is the message type exchanged for achieving consensus
@@ -74,11 +79,21 @@ func (t MessageType) GetName() string {
 	case 5:
 		return "COIN"
 	case 6:
-		return "COLLECTION"
-	case 7:
 		return "CON"
-	case 8:
+	case 7:
 		return "SKIP"
+	case 8:
+		return "ECHO_COLLECTION"
+	case 9:
+		return "READY_COLLECTION"
+	case 10:
+		return "BVAL_ZERO_COLLECTION"
+	case 11:
+		return "BVAL_ONE_COLLECTION"
+	case 12:
+		return "AUX_ZERO_COLLECTION"
+	case 13:
+		return "AUX_ONE_COLLECTION"
 	}
 	return "UNKNOWN"
 }
