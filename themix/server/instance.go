@@ -206,7 +206,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		inst.numEcho++
 		inst.echoMsgs[msg.From] = msg
-		if inst.numEcho == inst.f+1 {
+		if inst.numEcho == inst.f+1 && !inst.startR {
 			// start tmrR
 			inst.startR = true
 			inst.tmrR = *time.NewTimer(2 * time.Second)
@@ -246,6 +246,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.fastRBC = true
 			if inst.startR {
 				inst.tmrR.Stop()
+				inst.startR = false
 			}
 			var collection []*message.ConsMessage
 			for _, m := range inst.echoMsgs {
@@ -410,7 +411,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.isReadyToSendCoin()
 			b = true
 		}
-		if b && inst.round == msg.Round {
+		if b && inst.round == msg.Round && !inst.startS {
 			// start tmrS
 			inst.startS = true
 			inst.tmrS = *time.NewTimer(2 * time.Second)
@@ -481,7 +482,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.auxOneMsgs[msg.Round][msg.From] = msg
 		}
 
-		if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] == inst.f+1 {
+		if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] == inst.f+1 && !inst.startB {
 			// start tmrB
 			inst.startB = true
 			inst.tmrB = *time.NewTimer(4 * time.Second)
