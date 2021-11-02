@@ -75,8 +75,8 @@ type instance struct {
 	valMsgs       []*message.ConsMessage
 	bvalZeroSigns [][][]byte
 	bvalOneSigns  [][][]byte
-	auxZeroMsgs   [][]*message.ConsMessage
-	auxOneMsgs    [][]*message.ConsMessage
+	auxZeroSigns  [][][]byte
+	auxOneSigns   [][][]byte
 	coinMsgs      [][]*message.ConsMessage
 	startR        bool
 	startB        bool
@@ -105,8 +105,8 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk
 		readySigns:    make([][]byte, n),
 		bvalZeroSigns: make([][][]byte, maxround),
 		bvalOneSigns:  make([][][]byte, maxround),
-		auxZeroMsgs:   make([][]*message.ConsMessage, maxround),
-		auxOneMsgs:    make([][]*message.ConsMessage, maxround),
+		auxZeroSigns:  make([][][]byte, maxround),
+		auxOneSigns:   make([][][]byte, maxround),
 		coinMsgs:      make([][]*message.ConsMessage, maxround),
 		numBvalZero:   make([]uint64, maxround),
 		numBvalOne:    make([]uint64, maxround),
@@ -120,8 +120,8 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk
 	for i := 0; i < maxround; i++ {
 		inst.bvalZeroSigns[i] = make([][]byte, n)
 		inst.bvalOneSigns[i] = make([][]byte, n)
-		inst.auxZeroMsgs[i] = make([]*message.ConsMessage, n)
-		inst.auxOneMsgs[i] = make([]*message.ConsMessage, n)
+		inst.auxZeroSigns[i] = make([][]byte, n)
+		inst.auxOneSigns[i] = make([][]byte, n)
 		inst.coinMsgs[i] = make([]*message.ConsMessage, n)
 		inst.canSkipCoin[i] = true
 	}
@@ -338,16 +338,16 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		if inst.round == msg.Round && !inst.hasVotedZero && inst.numBvalZero[inst.round] > inst.f {
 			inst.hasVotedZero = true
-			// data := serialCollection(inst.bvalZeroSigns[msg.Round])
-			// m := &message.ConsMessage{
-			// 	Type:       message.BVAL_ZERO_COLLECTION,
-			// 	Proposer:   msg.Proposer,
-			// 	Round:      inst.round,
-			// 	Sequence:   msg.Sequence,
-			// 	Collection: data,
-			// }
-			// GetSign(m, inst.priv)
-			// inst.tp.Broadcast(m)
+			data := serialCollection(inst.bvalZeroSigns[msg.Round])
+			m := &message.ConsMessage{
+				Type:       message.BVAL_ZERO_COLLECTION,
+				Proposer:   msg.Proposer,
+				Round:      inst.round,
+				Sequence:   msg.Sequence,
+				Collection: data,
+			}
+			GetSign(m, inst.priv)
+			inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
 			inst.zeroEndorsed = true
@@ -367,16 +367,16 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		if inst.round == msg.Round && !inst.hasVotedOne && inst.numBvalOne[inst.round] > inst.f {
 			inst.hasVotedOne = true
-			// data := serialCollection(inst.bvalOneSigns[msg.Round])
-			// m := &message.ConsMessage{
-			// 	Type:       message.BVAL_ONE_COLLECTION,
-			// 	Proposer:   msg.Proposer,
-			// 	Round:      inst.round,
-			// 	Sequence:   msg.Sequence,
-			// 	Collection: data,
-			// }
-			// GetSign(m, inst.priv)
-			// inst.tp.Broadcast(m)
+			data := serialCollection(inst.bvalOneSigns[msg.Round])
+			m := &message.ConsMessage{
+				Type:       message.BVAL_ONE_COLLECTION,
+				Proposer:   msg.Proposer,
+				Round:      inst.round,
+				Sequence:   msg.Sequence,
+				Collection: data,
+			}
+			GetSign(m, inst.priv)
+			inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
 			inst.oneEndorsed = true
@@ -459,10 +459,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		switch msg.Content[0] {
 		case 0:
 			inst.numAuxZero[msg.Round]++
-			inst.auxZeroMsgs[msg.Round][msg.From] = msg
+			inst.auxZeroSigns[msg.Round][msg.From] = msg.Signature
 		case 1:
 			inst.numAuxOne[msg.Round]++
-			inst.auxOneMsgs[msg.Round][msg.From] = msg
+			inst.auxOneSigns[msg.Round][msg.From] = msg.Signature
 		}
 
 		if inst.numAuxZero[msg.Round]+inst.numAuxOne[msg.Round] == inst.f+1 && !inst.startB {
@@ -509,20 +509,14 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 * NEWROUND()
 		 */
 		if inst.round == msg.Round && msg.Content[0] == 0 && inst.numAuxZero[msg.Round] == inst.fastgroup {
-			// var collection []*message.ConsMessage
-			// for _, m := range inst.auxZeroMsgs[msg.Round] {
-			// 	if m != nil {
-			// 		collection = append(collection, m)
-			// 	}
-			// }
-			// data := serialCollection(collection)
-			// inst.tp.Broadcast(&message.ConsMessage{
-			// 	Type:       message.COLLECTION,
-			// 	Proposer:   msg.Proposer,
-			// 	Round:      inst.round,
-			// 	Sequence:   msg.Sequence,
-			// 	Collection: data,
-			// })
+			data := serialCollection(inst.auxZeroSigns[msg.Round])
+			inst.tp.Broadcast(&message.ConsMessage{
+				Type:       message.AUX_ZERO_COLLECTION,
+				Proposer:   msg.Proposer,
+				Round:      inst.round,
+				Sequence:   msg.Sequence,
+				Collection: data,
+			})
 
 			inst.zeroEndorsed = true
 			inst.sin[inst.round] = true
@@ -539,20 +533,14 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			return inst.isReadyToEnterNewRound()
 		}
 		if inst.round == msg.Round && msg.Content[0] == 1 && inst.numAuxOne[msg.Round] == inst.fastgroup {
-			// var collection []*message.ConsMessage
-			// for _, m := range inst.auxOneMsgs[msg.Round] {
-			// 	if m != nil {
-			// 		collection = append(collection, m)
-			// 	}
-			// }
-			// data := serialCollection(collection)
-			// inst.tp.Broadcast(&message.ConsMessage{
-			// 	Type:       message.COLLECTION,
-			// 	Proposer:   msg.Proposer,
-			// 	Round:      inst.round,
-			// 	Sequence:   msg.Sequence,
-			// 	Collection: data,
-			// })
+			data := serialCollection(inst.auxOneSigns[msg.Round])
+			inst.tp.Broadcast(&message.ConsMessage{
+				Type:       message.AUX_ONE_COLLECTION,
+				Proposer:   msg.Proposer,
+				Round:      inst.round,
+				Sequence:   msg.Sequence,
+				Collection: data,
+			})
 
 			inst.oneEndorsed = true
 			inst.sin[inst.round] = true
@@ -644,7 +632,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		colection := deserialCollection(msg.Collection)
 		for from, sign := range colection {
-			if inst.echoSigns[from] == nil {
+			if inst.echoSigns[from] == nil && sign != nil {
+				inst.numEcho++
 				inst.echoSigns[from] = sign
 			}
 		}
@@ -671,7 +660,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		collection := deserialCollection(msg.Collection)
 		for from, sign := range collection {
-			if inst.readySigns[from] == nil {
+			if inst.readySigns[from] == nil && sign != nil {
+				inst.numReady++
 				inst.readySigns[from] = sign
 			}
 		}
@@ -687,10 +677,112 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.tp.Broadcast(m)
 		}
 		return inst.isReadyToEnterNewRound()
-	// case message.BVAL_ZERO_COLLECTION:
-	// case message.BVAL_ONE_COLLECTION:
-	// case message.AUX_ZERO_COLLECTION:
-	// case message.AUX_ONE_COLLECTION:
+	case message.BVAL_ZERO_COLLECTION:
+		if inst.hasVotedZero || inst.round != msg.Round {
+			return false, false
+		}
+		collection := deserialCollection(msg.Collection)
+		for from, sign := range collection {
+			if inst.bvalZeroSigns[msg.Round][from] == nil && sign != nil {
+				inst.numBvalZero[msg.Round]++
+				inst.bvalZeroSigns[msg.Round][from] = sign
+			}
+		}
+		inst.hasVotedZero = true
+		if !inst.zeroEndorsed {
+			inst.zeroEndorsed = true
+			if !inst.hasSentAux {
+				inst.hasSentAux = true
+				m := &message.ConsMessage{
+					Type:     message.AUX,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  []byte{0}} // aux 0
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
+			}
+			inst.isReadyToSendCoin()
+		}
+		inst.tp.Broadcast(msg)
+	case message.BVAL_ONE_COLLECTION:
+		if inst.hasVotedOne || inst.round != msg.Round {
+			return false, false
+		}
+		collection := deserialCollection(msg.Collection)
+		for from, sign := range collection {
+			if inst.bvalOneSigns[msg.Round][from] == nil && sign != nil {
+				inst.numBvalOne[msg.Round]++
+				inst.bvalOneSigns[msg.Round][from] = sign
+			}
+		}
+		inst.hasVotedOne = true
+		if !inst.oneEndorsed {
+			inst.oneEndorsed = true
+			if !inst.hasSentAux {
+				inst.hasSentAux = true
+				m := &message.ConsMessage{
+					Type:     message.AUX,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  []byte{1}} // aux 1
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
+			}
+			inst.isReadyToSendCoin()
+		}
+		inst.tp.Broadcast(msg)
+	case message.AUX_ZERO_COLLECTION:
+		if inst.zeroEndorsed || inst.round != msg.Round {
+			return false, false
+		}
+		collection := deserialCollection(msg.Collection)
+		for from, sign := range collection {
+			if inst.auxZeroSigns[msg.Round][from] == nil || sign != nil {
+				inst.numAuxZero[msg.Round]++
+				inst.auxZeroSigns[msg.Round][from] = sign
+			}
+		}
+		inst.tp.Broadcast(msg)
+		inst.zeroEndorsed = true
+		inst.sin[inst.round] = true
+		if inst.canSkipCoin[inst.round] {
+			inst.tp.Broadcast(&message.ConsMessage{
+				Type:     message.SKIP,
+				Proposer: msg.Proposer,
+				Round:    inst.round,
+				Sequence: msg.Sequence,
+				Content:  []byte{0},
+			})
+		}
+		inst.isReadyToSendCoin()
+		return inst.isReadyToEnterNewRound()
+	case message.AUX_ONE_COLLECTION:
+		if inst.oneEndorsed || inst.round != msg.Round {
+			return false, false
+		}
+		collection := deserialCollection(msg.Collection)
+		for from, sign := range collection {
+			if inst.auxOneSigns[msg.Round][from] == nil || sign != nil {
+				inst.numAuxOne[msg.Round]++
+				inst.auxOneSigns[msg.Round][from] = sign
+			}
+		}
+		inst.tp.Broadcast(msg)
+		inst.oneEndorsed = true
+		inst.sin[inst.round] = true
+		if inst.canSkipCoin[inst.round] {
+			inst.tp.Broadcast(&message.ConsMessage{
+				Type:     message.SKIP,
+				Proposer: msg.Proposer,
+				Round:    inst.round,
+				Sequence: msg.Sequence,
+				Content:  []byte{1},
+			})
+		}
+		inst.isReadyToSendCoin()
+		return inst.isReadyToEnterNewRound()
 
 	default:
 		return false, false
