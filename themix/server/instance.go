@@ -180,6 +180,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		hash, _ := sha256.ComputeHash(msg.Content)
 		if !inst.hasEcho {
 			// broadcast VAL(v)src, ECHO(v)i
+			inst.hasEcho = true
 			m := &message.ConsMessage{
 				Type:     message.ECHO,
 				Proposer: msg.Proposer,
@@ -187,7 +188,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				Content:  hash}
 			GetSign(m, inst.priv)
 			inst.tp.Broadcast(m)
-			inst.hasEcho = true
 			m = &message.ConsMessage{
 				Type:      message.VAL,
 				Proposer:  msg.Proposer,
@@ -210,10 +210,8 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if !verify {
 			return false, false
 		}
-		if inst.echoSigns[msg.From] == nil {
-			inst.numEcho++
-			inst.echoSigns[msg.From] = msg.Signature
-		}
+		inst.numEcho++
+		inst.echoSigns[msg.From] = msg.Signature
 		// if inst.numEcho == inst.f+1 && !inst.startR {
 		// 	// start tmrR
 		// 	inst.startR = true
@@ -250,8 +248,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 * broadcast ECHO(v) sent by fast group
 		 * deliver(v)
 		 */
-		if inst.numEcho == inst.fastgroup && inst.round == 0 {
-			inst.lg.Info("echo from fast group, can fast RBC, broadcast echo_collection, vote BVAL(1)")
+		if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
 			inst.fastRBC = true
 			if inst.startR {
 				inst.tmrR.Stop()
@@ -348,7 +345,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.bvalOneSigns[msg.Round][msg.From] = msg.Signature
 		}
 		if inst.round == msg.Round && !inst.hasVotedZero && inst.numBvalZero[inst.round] > inst.f {
-			inst.lg.Info("numBvalZero > f+1, vote for zero and broadcast bval_zero_collection")
 			inst.hasVotedZero = true
 			data := serialCollection(inst.bvalZeroSigns[msg.Round])
 			m := &message.ConsMessage{
@@ -362,7 +358,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
-			inst.lg.Info("numBvalZero > f+1, send AUX(0)")
 			inst.zeroEndorsed = true
 			if !inst.hasSentAux {
 				inst.hasSentAux = true
@@ -379,7 +374,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			b = true
 		}
 		if inst.round == msg.Round && !inst.hasVotedOne && inst.numBvalOne[inst.round] > inst.f {
-			inst.lg.Info("numBvalOne > f+1, vote for one and broadcast bval_one_collection")
 			inst.hasVotedOne = true
 			data := serialCollection(inst.bvalOneSigns[msg.Round])
 			m := &message.ConsMessage{
@@ -393,7 +387,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
-			inst.lg.Info("numBvalOne > f+1, send AUX(1)")
 			inst.oneEndorsed = true
 			if !inst.hasSentAux {
 				inst.hasSentAux = true
@@ -524,7 +517,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 * NEWROUND()
 		 */
 		if inst.round == msg.Round && msg.Content[0] == 0 && !inst.fastAuxZero && inst.numAuxZero[msg.Round] >= inst.fastgroup {
-			inst.lg.Info("AUX(0) from fast group")
 			inst.fastAuxZero = true
 			data := serialCollection(inst.auxZeroSigns[msg.Round])
 			inst.tp.Broadcast(&message.ConsMessage{
@@ -550,7 +542,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			return inst.isReadyToEnterNewRound()
 		}
 		if inst.round == msg.Round && msg.Content[0] == 1 && !inst.fastAuxOne && inst.numAuxOne[msg.Round] >= inst.fastgroup {
-			inst.lg.Info("AUX(1) from fast group")
 			inst.fastAuxOne = true
 			data := serialCollection(inst.auxOneSigns[msg.Round])
 			inst.tp.Broadcast(&message.ConsMessage{
