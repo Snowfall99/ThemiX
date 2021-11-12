@@ -173,12 +173,14 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * start timer tmrR <- 2*delta
 	 */
 	case message.VAL:
-		if VerifySign(*msg, inst.priv) {
+		v := VerifySign(*msg, inst.priv)
+		if v {
+			inst.proposal = msg
+		} else {
 			inst.valMsgs[msg.From] = msg
 		}
-		inst.proposal = msg
 		hash, _ := sha256.ComputeHash(msg.Content)
-		if !inst.hasEcho {
+		if v && !inst.hasEcho {
 			// broadcast VAL(v)src, ECHO(v)i
 			inst.hasEcho = true
 			m := &message.ConsMessage{
@@ -198,7 +200,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.tp.Broadcast(m)
 		}
 		inst.isReadyToSendCoin()
-		return inst.isReadyToEnterNewRound()
+		return inst.isFastRBC()
 
 	/*
 	 * upon receiving f+1 ECHO(v), and tmrR expires
@@ -250,30 +252,31 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 */
 		if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
 			inst.fastRBC = true
-			if inst.startR {
-				inst.tmrR.Stop()
-				inst.startR = false
-			}
-			data := serialCollection(inst.echoSigns)
-			m := &message.ConsMessage{
-				Type:       message.ECHO_COLLECTION,
-				Proposer:   msg.Proposer,
-				Round:      msg.Round,
-				Sequence:   msg.Sequence,
-				Collection: data,
-			}
-			inst.tp.Broadcast(m)
-			if !inst.hasVotedZero && !inst.hasVotedOne {
-				inst.hasVotedOne = true
-				m := &message.ConsMessage{
-					Type:     message.BVAL,
-					Proposer: msg.Proposer,
-					Sequence: msg.Sequence,
-					Content:  []byte{1}} // vote 1
-				GetSign(m, inst.priv)
-				inst.tp.Broadcast(m)
-			}
-			return inst.isReadyToEnterNewRound()
+			return inst.isFastRBC()
+			// if inst.startR {
+			// 	inst.tmrR.Stop()
+			// 	inst.startR = false
+			// }
+			// data := serialCollection(inst.echoSigns)
+			// m := &message.ConsMessage{
+			// 	Type:       message.ECHO_COLLECTION,
+			// 	Proposer:   msg.Proposer,
+			// 	Round:      msg.Round,
+			// 	Sequence:   msg.Sequence,
+			// 	Collection: data,
+			// }
+			// inst.tp.Broadcast(m)
+			// if !inst.hasVotedZero && !inst.hasVotedOne {
+			// 	inst.hasVotedOne = true
+			// 	m := &message.ConsMessage{
+			// 		Type:     message.BVAL,
+			// 		Proposer: msg.Proposer,
+			// 		Sequence: msg.Sequence,
+			// 		Content:  []byte{1}} // vote 1
+			// 	GetSign(m, inst.priv)
+			// 	inst.tp.Broadcast(m)
+			// }
+			// return inst.isReadyToEnterNewRound()
 		}
 
 	/*
@@ -302,14 +305,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			}
 			inst.tp.Broadcast(m)
 			if !inst.hasVotedZero && !inst.hasVotedOne {
-				// // Test
-				// if inst.proposal != nil {
-				// 	inst.binVals = 1
-				// 	inst.isDecided = true
-				// 	return true, false
-				// } else {
-				// 	return false, false
-				// }
 				inst.hasVotedOne = true
 				m := &message.ConsMessage{
 					Type:     message.BVAL,
@@ -914,6 +909,16 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		}
 	}
 	return false, false
+}
+
+func (inst *instance) isFastRBC() (bool, bool) {
+	if inst.proposal != nil && inst.fastRBC {
+		inst.binVals = 1
+		inst.isDecided = true
+		return true, false
+	} else {
+		return false, false
+	}
 }
 
 func (inst *instance) fastDecide(value int) (bool, bool) {

@@ -15,6 +15,7 @@
 package server
 
 import (
+	"fmt"
 	"sync"
 
 	"go.themix.io/crypto/bls"
@@ -71,21 +72,18 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 		acs.lock.Lock()
 		defer acs.lock.Unlock()
 
-		proposal := acs.instances[msg.Proposer].getProposal()
-		acs.reqc <- proposal
+		if !acs.instances[msg.Proposer].decidedOne() && msg.Proposer == acs.proposer.id {
+			fmt.Printf("ID %d decided zero at %d\n", msg.Proposer, msg.Sequence)
+		}
 
-		// if !acs.instances[msg.Proposer].decidedOne() && msg.Proposer == acs.proposer.id {
-		// 	fmt.Printf("ID %d decided zero at %d\n", msg.Proposer, msg.Sequence)
-		// }
+		acs.numDecided++
+		if acs.numDecided == 1 {
+			acs.proposer.proceed(acs.sequence)
+		}
 
-		// acs.numDecided++
-		// if acs.numDecided == 1 {
-		// 	acs.proposer.proceed(acs.sequence)
-		// }
-
-		// if acs.instances[msg.Proposer].decidedOne() {
-		// 	acs.numDecidedOne++
-		// }
+		if acs.instances[msg.Proposer].decidedOne() {
+			acs.numDecidedOne++
+		}
 
 		// Just for test
 		// if acs.numDecidedOne == acs.thld {
@@ -94,38 +92,30 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 		// 	}
 		// }
 
-		// if acs.numDecided == acs.n {
-		// 	for _, inst := range acs.instances {
-		// 		proposal := inst.getProposal()
-		// 		if inst.decidedOne() && len(proposal.Content) != 0 {
-		// 			inst.lg.Info("executed",
-		// 				zap.Int("proposer", int(proposal.Proposer)),
-		// 				zap.Int("seq", int(msg.Sequence)),
-		// 				zap.Int("content", int(proposal.Content[0])))
-		// 			// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
-		// 			acs.reqc <- proposal
-
-		// 			// // send execute message to coordinator
-		// 			// data := "end " + strconv.FormatUint(msg.Sequence, 10)
-		// 			// _, err := acs.coordinator.Write([]byte(data))
-		// 			// if err != nil {
-		// 			// 	fmt.Println("send execute message to coordinator failed: ", err.Error())
-		// 			// 	return
-		// 			// }
-		// 		} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
-		// 			inst.lg.Info("repropose",
-		// 				zap.Int("proposer", int(proposal.Proposer)),
-		// 				zap.Int("seq", int(proposal.Sequence)),
-		// 				zap.Int("content", int(proposal.Content[0])))
-		// 			// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
-		// 			acs.proposer.propose(proposal.Content)
-		// 		} else if inst.decidedOne() {
-		// 			inst.lg.Info("empty",
-		// 				zap.Int("proposer", int(proposal.Proposer)),
-		// 				zap.Int("seq", int(proposal.Sequence)))
-		// 		}
-		// 	}
-		// }
+		if acs.numDecided == acs.n {
+			for _, inst := range acs.instances {
+				proposal := inst.getProposal()
+				if inst.decidedOne() && len(proposal.Content) != 0 {
+					inst.lg.Info("executed",
+						zap.Int("proposer", int(proposal.Proposer)),
+						zap.Int("seq", int(msg.Sequence)),
+						zap.Int("content", int(proposal.Content[0])))
+					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
+					acs.reqc <- proposal
+				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
+					inst.lg.Info("repropose",
+						zap.Int("proposer", int(proposal.Proposer)),
+						zap.Int("seq", int(proposal.Sequence)),
+						zap.Int("content", int(proposal.Content[0])))
+					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
+					acs.proposer.propose(proposal.Content)
+				} else if inst.decidedOne() {
+					inst.lg.Info("empty",
+						zap.Int("proposer", int(proposal.Proposer)),
+						zap.Int("seq", int(proposal.Sequence)))
+				}
+			}
+		}
 	} else if isFinished {
 		// acs.lock.Lock()
 		// defer acs.lock.Unlock()
