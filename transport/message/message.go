@@ -41,6 +41,7 @@ const (
 	BVAL_ONE_COLLECTION  MessageType = 11
 	AUX_ZERO_COLLECTION  MessageType = 12
 	AUX_ONE_COLLECTION   MessageType = 13
+	VAL_SIGN             MessageType = 14
 )
 
 // ConsMessage is the message type exchanged for achieving consensus
@@ -94,6 +95,8 @@ func (t MessageType) GetName() string {
 		return "AUX_ZERO_COLLECTION"
 	case 13:
 		return "AUX_ONE_COLLECTION"
+	case 14:
+		return "VAL_SIGN"
 	}
 	return "UNKNOWN"
 }
