@@ -44,12 +44,12 @@ func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc c
 }
 
 func (proposer *Proposer) proceed(seq uint64) {
-	proposer.lock.Lock()
-	defer proposer.lock.Unlock()
+	// proposer.lock.Lock()
+	// defer proposer.lock.Unlock()
 
-	if proposer.seq <= seq {
-		proposer.reqc <- []byte{} // insert an empty reqeust
-	}
+	// if proposer.seq <= seq {
+	// 	proposer.reqc <- []byte{} // insert an empty reqeust
+	// }
 }
 
 func (proposer *Proposer) run() {
