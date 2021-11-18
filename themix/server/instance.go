@@ -173,11 +173,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * start timer tmrR <- 2*delta
 	 */
 	case message.VAL:
-		if VerifySign(*msg, inst.priv) {
-			inst.proposal = msg
-		} else {
-			return false, false
-		}
+		inst.proposal = msg
 		hash, _ := sha256.ComputeHash(msg.Content)
 		if !inst.hasEcho {
 			// broadcast VAL(v)src, ECHO(v)i
@@ -209,10 +205,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * broadcast READY(v)i
 	 */
 	case message.ECHO:
-		verify := VerifySign(*msg, inst.priv)
-		if !verify {
-			return false, false
-		}
 		inst.numEcho++
 		inst.echoSigns[msg.From] = msg.Signature
 		/*
@@ -224,6 +216,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.fastRBC = true
 			return inst.isFastRBC()
 		}
+		return inst.isFastRBC()
 	default:
 		return false, false
 	}
@@ -347,6 +340,10 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 }
 
 func (inst *instance) isFastRBC() (bool, bool) {
+	if inst.isDecided {
+		inst.isFinished = true
+		return false, true
+	}
 	if inst.proposal != nil && inst.fastRBC {
 		inst.binVals = 1
 		inst.isDecided = true

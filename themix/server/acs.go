@@ -77,9 +77,9 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 		}
 
 		acs.numDecided++
-		if acs.numDecided == 1 {
-			acs.proposer.proceed(acs.sequence)
-		}
+		// if acs.numDecided == 1 {
+		// 	acs.proposer.proceed(acs.sequence)
+		// }
 
 		if acs.instances[msg.Proposer].decidedOne() {
 			acs.numDecidedOne++
