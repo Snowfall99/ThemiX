@@ -139,10 +139,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		return false, false
 	}
 
-	if inst.isFinished {
-		return false, false
-	}
-
 	// if inst.fastRBC && msg.Type == message.READY {
 	// 	return false, false
 	// }
@@ -162,6 +158,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			zap.Int("seq", int(msg.Sequence)),
 			zap.Int("round", int(msg.Round)),
 			zap.Int("from", int(msg.From)))
+	}
+
+	if inst.isFinished {
+		return false, false
 	}
 
 	switch msg.Type {
@@ -194,7 +194,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			inst.tp.Broadcast(m)
 		}
 		inst.isReadyToSendCoin()
-		return inst.isFastRBC()
+		return inst.isFastDecided()
 
 	case message.VAL_SIGN:
 		inst.valMsgs[msg.From] = msg
@@ -214,9 +214,49 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 */
 		if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
 			inst.fastRBC = true
-			return inst.isFastRBC()
+			// data := serialCollection(inst.echoSigns)
+			// m := &message.ConsMessage{
+			// 	Type:       message.ECHO_COLLECTION,
+			// 	Proposer:   msg.Proposer,
+			// 	Round:      msg.Round,
+			// 	Sequence:   msg.Sequence,
+			// 	Collection: data,
+			// }
+			// inst.tp.Broadcast(m)
+			if !inst.hasVotedZero && !inst.hasVotedOne {
+				inst.hasVotedOne = true
+				m := &message.ConsMessage{
+					Type:     message.BVAL,
+					Proposer: msg.Proposer,
+					Sequence: msg.Sequence,
+					Content:  []byte{1}, // vote 1
+				}
+				inst.tp.Broadcast(m)
+			}
 		}
-		return inst.isFastRBC()
+		return inst.isFastDecided()
+	case message.BVAL:
+		switch msg.Content[0] {
+		case 0:
+			inst.numBvalZero[msg.Round]++
+			inst.bvalZeroSigns[msg.Round][msg.From] = msg.Signature
+		case 1:
+			inst.numBvalOne[msg.Round]++
+			inst.bvalOneSigns[msg.Round][msg.From] = msg.Signature
+		}
+		if inst.round == msg.Round && !inst.hasVotedZero && inst.numBvalZero[inst.round] > inst.f {
+			inst.hasVotedZero = true
+		}
+		if inst.round == msg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
+			inst.zeroEndorsed = true
+		}
+		if inst.round == msg.Round && !inst.hasVotedOne && inst.numBvalOne[inst.round] > inst.f {
+			inst.hasVotedOne = true
+		}
+		if inst.round == msg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
+			inst.oneEndorsed = true
+		}
+		return inst.isFastDecided()
 	default:
 		return false, false
 	}
@@ -339,12 +379,13 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 	return false, false
 }
 
-func (inst *instance) isFastRBC() (bool, bool) {
+func (inst *instance) isFastDecided() (bool, bool) {
 	if inst.isDecided {
 		inst.isFinished = true
 		return false, true
 	}
-	if inst.proposal != nil && inst.fastRBC {
+	if inst.proposal != nil && inst.fastRBC &&
+		(inst.hasVotedZero || inst.hasVotedOne) {
 		inst.binVals = 1
 		inst.isDecided = true
 		return true, false
