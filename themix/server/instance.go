@@ -16,7 +16,6 @@ package server
 
 import (
 	"crypto/ecdsa"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -27,7 +26,6 @@ import (
 	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport"
-	"go.themix.io/transport/info"
 	"go.themix.io/transport/message"
 	"go.uber.org/zap"
 )
@@ -70,14 +68,14 @@ type instance struct {
 	numAuxOne     []uint64
 	numCon        []uint64
 	numCoin       []uint64
-	echoSigns     [][]byte
+	echoSigns     []HashSign
 	readySigns    [][]byte
 	proposal      *message.ConsMessage
 	valMsgs       []*message.ConsMessage
-	bvalZeroSigns [][][]byte
-	bvalOneSigns  [][][]byte
-	auxZeroSigns  [][][]byte
-	auxOneSigns   [][][]byte
+	bvalZeroSigns [][]HashSign
+	bvalOneSigns  [][]HashSign
+	auxZeroSigns  [][]HashSign
+	auxOneSigns   [][]HashSign
 	coinMsgs      [][]*message.ConsMessage
 	startR        bool
 	startB        bool
@@ -102,12 +100,12 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk
 		sin:           make([]bool, maxround),
 		canSkipCoin:   make([]bool, maxround),
 		valMsgs:       make([]*message.ConsMessage, n),
-		echoSigns:     make([][]byte, n),
+		echoSigns:     make([]HashSign, n),
 		readySigns:    make([][]byte, n),
-		bvalZeroSigns: make([][][]byte, maxround),
-		bvalOneSigns:  make([][][]byte, maxround),
-		auxZeroSigns:  make([][][]byte, maxround),
-		auxOneSigns:   make([][][]byte, maxround),
+		bvalZeroSigns: make([][]HashSign, maxround),
+		bvalOneSigns:  make([][]HashSign, maxround),
+		auxZeroSigns:  make([][]HashSign, maxround),
+		auxOneSigns:   make([][]HashSign, maxround),
 		coinMsgs:      make([][]*message.ConsMessage, maxround),
 		numBvalZero:   make([]uint64, maxround),
 		numBvalOne:    make([]uint64, maxround),
@@ -119,10 +117,10 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
 	inst.priv, _ = myecdsa.LoadKey(pkPath)
 	for i := 0; i < maxround; i++ {
-		inst.bvalZeroSigns[i] = make([][]byte, n)
-		inst.bvalOneSigns[i] = make([][]byte, n)
-		inst.auxZeroSigns[i] = make([][]byte, n)
-		inst.auxOneSigns[i] = make([][]byte, n)
+		inst.bvalZeroSigns[i] = make([]HashSign, n)
+		inst.bvalOneSigns[i] = make([]HashSign, n)
+		inst.auxZeroSigns[i] = make([]HashSign, n)
+		inst.auxOneSigns[i] = make([]HashSign, n)
 		inst.coinMsgs[i] = make([]*message.ConsMessage, n)
 		inst.canSkipCoin[i] = true
 	}
@@ -138,10 +136,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	if msg.Round > 0 {
 		return false, false
 	}
-
-	// if inst.fastRBC && msg.Type == message.READY {
-	// 	return false, false
-	// }
 
 	if len(msg.Content) > 0 {
 		inst.lg.Info("receive msg",
@@ -173,6 +167,10 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * start timer tmrR <- 2*delta
 	 */
 	case message.VAL:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
 		inst.proposal = msg
 		hash, _ := sha256.ComputeHash(msg.Content)
 		if !inst.hasEcho {
@@ -193,7 +191,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			}
 			inst.tp.Broadcast(m)
 		}
-		inst.isReadyToSendCoin()
 		return inst.isFastDecided()
 
 	case message.VAL_SIGN:
@@ -205,8 +202,15 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * broadcast READY(v)i
 	 */
 	case message.ECHO:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
 		inst.numEcho++
-		inst.echoSigns[msg.From] = msg.Signature
+		inst.echoSigns[msg.From] = HashSign{
+			Hash: msg.Content,
+			Sign: msg.Signature,
+		}
 		/*
 		 * upon receiving ECHO(v) from fast group
 		 * broadcast ECHO(v) sent by fast group
@@ -214,13 +218,13 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		 */
 		if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
 			inst.fastRBC = true
-			// data := serialCollection(inst.echoSigns)
+			// collection := serialCollection(inst.echoSigns)
 			// m := &message.ConsMessage{
 			// 	Type:       message.ECHO_COLLECTION,
 			// 	Proposer:   msg.Proposer,
 			// 	Round:      msg.Round,
 			// 	Sequence:   msg.Sequence,
-			// 	Collection: data,
+			// 	Collection: collection,
 			// }
 			// inst.tp.Broadcast(m)
 			if !inst.hasVotedZero && !inst.hasVotedOne {
@@ -231,150 +235,172 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 					Sequence: msg.Sequence,
 					Content:  []byte{1}, // vote 1
 				}
+				GetSign(m, inst.priv)
 				inst.tp.Broadcast(m)
 			}
 		}
 		return inst.isFastDecided()
 	case message.BVAL:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
+		var b bool
 		switch msg.Content[0] {
 		case 0:
 			inst.numBvalZero[msg.Round]++
-			inst.bvalZeroSigns[msg.Round][msg.From] = msg.Signature
+			inst.bvalZeroSigns[msg.Round][msg.From] = HashSign{
+				Hash: msg.Content,
+				Sign: msg.Signature,
+			}
 		case 1:
 			inst.numBvalOne[msg.Round]++
-			inst.bvalOneSigns[msg.Round][msg.From] = msg.Signature
+			inst.bvalOneSigns[msg.Round][msg.From] = HashSign{
+				Hash: msg.Content,
+				Sign: msg.Signature,
+			}
 		}
 		if inst.round == msg.Round && !inst.hasVotedZero && inst.numBvalZero[inst.round] > inst.f {
 			inst.hasVotedZero = true
+			// 	collection := serialCollection(inst.bvalZeroSigns[msg.Round])
+			// 	m := &message.ConsMessage{
+			// 		Type:       message.BVAL_ZERO_COLLECTION,
+			// 		Proposer:   msg.Proposer,
+			// 		Round:      inst.round,
+			// 		Sequence:   msg.Sequence,
+			// 		Collection: collection,
+			// 	}
+			// 	inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
 			inst.zeroEndorsed = true
+			if !inst.hasSentAux {
+				inst.hasSentAux = true
+				m := &message.ConsMessage{
+					Type:     message.AUX,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  []byte{0}, // aux 0
+				}
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
+			}
+			b = true
 		}
 		if inst.round == msg.Round && !inst.hasVotedOne && inst.numBvalOne[inst.round] > inst.f {
 			inst.hasVotedOne = true
+			// collection := serialCollection(inst.bvalOneSigns[msg.Round])
+			// m := &message.ConsMessage{
+			// 	Type:       message.BVAL_ONE_COLLECTION,
+			// 	Proposer:   msg.Proposer,
+			// 	Round:      inst.round,
+			// 	Sequence:   msg.Sequence,
+			// 	Collection: collection,
+			// }
+			// inst.tp.Broadcast(m)
 		}
 		if inst.round == msg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
 			inst.oneEndorsed = true
+			if !inst.hasSentAux {
+				inst.hasSentAux = true
+				m := &message.ConsMessage{
+					Type:     message.AUX,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  []byte{1}} // aux 1
+				GetSign(m, inst.priv)
+				inst.tp.Broadcast(m)
+			}
+		}
+		if b {
+			return inst.isFastDecided()
+		}
+	case message.AUX:
+		verify := VerifySign(*msg, inst.priv)
+		if !verify {
+			return false, false
+		}
+		switch msg.Content[0] {
+		case 0:
+			inst.numAuxZero[msg.Round]++
+			inst.auxZeroSigns[msg.Round][msg.From] = HashSign{
+				Hash: msg.Content,
+				Sign: msg.Signature,
+			}
+		case 1:
+			inst.numAuxOne[msg.Round]++
+			inst.auxOneSigns[msg.Round][msg.From] = HashSign{
+				Hash: msg.Content,
+				Sign: msg.Signature,
+			}
+		}
+		if inst.round == msg.Round && msg.Content[0] == 0 && !inst.fastAuxZero && inst.numAuxZero[msg.Round] >= inst.fastgroup {
+			inst.fastAuxZero = true
+			// collection := serialCollection(inst.auxZeroSigns[msg.Round])
+			// inst.tp.Broadcast(&message.ConsMessage{
+			// 	Type:       message.AUX_ZERO_COLLECTION,
+			// 	Proposer:   msg.Proposer,
+			// 	Round:      inst.round,
+			// 	Sequence:   msg.Sequence,
+			// 	Collection: collection,
+			// })
+
+			inst.zeroEndorsed = true
+			if inst.canSkipCoin[inst.round] {
+				inst.tp.Broadcast(&message.ConsMessage{
+					Type:     message.SKIP,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  msg.Content,
+				})
+			}
+			return inst.isFastDecided()
+		}
+		if inst.round == msg.Round && msg.Content[0] == 1 && !inst.fastAuxOne && inst.numAuxOne[msg.Round] >= inst.fastgroup {
+			inst.fastAuxOne = true
+			// collection := serialCollection(inst.auxOneSigns[msg.Round])
+			// inst.tp.Broadcast(&message.ConsMessage{
+			// 	Type:       message.AUX_ONE_COLLECTION,
+			// 	Proposer:   msg.Proposer,
+			// 	Round:      inst.round,
+			// 	Sequence:   msg.Sequence,
+			// 	Collection: collection,
+			// })
+
+			inst.oneEndorsed = true
+			if inst.canSkipCoin[inst.round] {
+				inst.tp.Broadcast(&message.ConsMessage{
+					Type:     message.SKIP,
+					Proposer: msg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.Sequence,
+					Content:  msg.Content,
+				})
+			}
+			return inst.isFastDecided()
+		}
+		return inst.isFastDecided()
+	case message.SKIP:
+		switch msg.Content[0] {
+		case 0:
+			inst.numZeroSkip++
+		case 1:
+			inst.numOneSkip++
+		}
+		// if receiving SKIP(b, r') (any r') from fastgroup
+		// decide(b)
+		if msg.Content[0] == 0 && inst.proposal != nil && !inst.isDecided && inst.numZeroSkip >= inst.fastgroup {
+			return inst.isFastDecided()
+		}
+		if msg.Content[0] == 1 && inst.proposal != nil && !inst.isDecided && inst.numOneSkip >= inst.fastgroup {
+			return inst.isFastDecided()
 		}
 		return inst.isFastDecided()
 	default:
 		return false, false
-	}
-	return false, false
-}
-
-// must be executed within inst.lock
-func (inst *instance) isReadyToSendCoin() {
-	if !inst.hasSentCoin && inst.proposal != nil {
-		if inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld {
-			inst.binVals = 1
-		} else if inst.zeroEndorsed && inst.numAuxZero[inst.round] >= inst.thld {
-			inst.binVals = 0
-		} else if inst.oneEndorsed && inst.zeroEndorsed &&
-			inst.numAuxOne[inst.round]+inst.numAuxZero[inst.round] >= inst.thld {
-			inst.binVals = 2
-		} else {
-			return
-		}
-
-		inst.hasSentCoin = true
-		inst.tp.Broadcast(&message.ConsMessage{
-			Type:     message.COIN,
-			Proposer: inst.proposal.Proposer,
-			Round:    inst.round,
-			Sequence: inst.sequence,
-			Content:  inst.blsSig.Sign(inst.getCoinInfo())}) // threshold bls sig share
-	}
-}
-
-// must be executed within inst.lock
-// return true if the instance is decided or finished at the first time
-func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
-	if inst.hasSentCoin &&
-		inst.numCoin[inst.round] > inst.f &&
-		inst.numCon[inst.round] > inst.f &&
-		inst.proposal != nil &&
-		(inst.numReady >= inst.thld || inst.fastRBC) &&
-		inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld &&
-		((inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld) ||
-			(inst.zeroEndorsed && inst.numAuxZero[inst.round] >= inst.thld) ||
-			(inst.oneEndorsed && inst.zeroEndorsed)) {
-		sigShares := make([][]byte, 0)
-		sigNum := 0
-		for _, m := range inst.coinMsgs[inst.round] {
-			if m != nil {
-				sigNum++
-				sigShares = append(sigShares, m.Content)
-			}
-		}
-		if sigNum <= int(inst.f) {
-			return false, false
-		}
-		coin := inst.blsSig.Recover(inst.getCoinInfo(), sigShares, int(inst.f+1), int(inst.n))
-
-		inst.lg.Info("coin result",
-			zap.Int("proposer", int(inst.proposal.Proposer)),
-			zap.Int("seq", int(inst.sequence)),
-			zap.Int("round", int(inst.round)),
-			zap.Int("coin", int(coin[0]%2)))
-
-		var nextVote byte
-		if coin[0]%2 == inst.binVals {
-			if inst.isDecided {
-				inst.isFinished = true
-				return false, true
-			}
-
-			inst.lg.Info("decided",
-				zap.Int("proposer", int(inst.proposal.Proposer)),
-				zap.Int("seq", int(inst.sequence)),
-				zap.Int("round", int(inst.round)),
-				zap.Int("result", int(coin[0]%2)))
-
-			inst.isDecided = true
-			nextVote = inst.binVals
-		} else if inst.binVals != 2 { // nextVote should insist the single value
-			nextVote = inst.binVals
-		} else {
-			nextVote = coin[0] % 2
-		}
-
-		if nextVote == 0 {
-			inst.hasVotedZero = true
-			inst.hasVotedOne = false
-		} else {
-			inst.hasVotedZero = false
-			inst.hasVotedOne = true
-		}
-		inst.hasSentAux = false
-		inst.hasSentCoin = false
-		inst.zeroEndorsed = false
-		inst.oneEndorsed = false
-		inst.fastAuxZero = false
-		inst.fastAuxOne = false
-		inst.lastCoin = coin[0]
-		if inst.startB {
-			inst.tmrB.Stop()
-			inst.startB = false
-		}
-		if inst.startS {
-			inst.tmrS.Stop()
-			inst.startS = false
-		}
-		inst.round++
-
-		m := &message.ConsMessage{
-			Type:     message.BVAL,
-			Proposer: inst.proposal.Proposer,
-			Round:    inst.round,
-			Sequence: inst.sequence,
-			Content:  []byte{nextVote}}
-		GetSign(m, inst.priv)
-		inst.tp.Broadcast(m)
-
-		if coin[0]%2 == inst.binVals && inst.isDecided {
-			return true, false
-		}
 	}
 	return false, false
 }
@@ -384,93 +410,13 @@ func (inst *instance) isFastDecided() (bool, bool) {
 		inst.isFinished = true
 		return false, true
 	}
-	if inst.proposal != nil && inst.fastRBC &&
-		(inst.hasVotedZero || inst.hasVotedOne) {
+	if inst.proposal != nil &&
+		(inst.numZeroSkip >= inst.fastgroup || inst.numOneSkip >= inst.fastgroup) {
 		inst.binVals = 1
 		inst.isDecided = true
 		return true, false
 	} else {
 		return false, false
-	}
-}
-
-func (inst *instance) fastDecide(value int) (bool, bool) {
-	if inst.isDecided {
-		inst.isFinished = true
-		return false, true
-	}
-
-	inst.lg.Info("fast decide",
-		zap.Int("proposer", int(inst.proposal.Proposer)),
-		zap.Int("seq", int(inst.sequence)),
-		zap.Int("round", int(inst.round)),
-		zap.Int("result", value))
-
-	inst.isDecided = true
-	nextVote := inst.binVals
-	if nextVote == 0 {
-		inst.hasVotedZero = true
-		inst.hasVotedOne = false
-	} else {
-		inst.hasVotedZero = false
-		inst.hasVotedOne = true
-	}
-	inst.hasSentAux = false
-	inst.hasSentCoin = false
-	inst.zeroEndorsed = false
-	inst.oneEndorsed = false
-	inst.fastAuxZero = false
-	inst.fastAuxOne = false
-	if inst.startB {
-		inst.tmrB.Stop()
-		inst.startB = false
-	}
-	if inst.startS {
-		inst.tmrS.Stop()
-		inst.startS = false
-	}
-	inst.round++
-
-	m := &message.ConsMessage{
-		Type:     message.BVAL,
-		Proposer: inst.proposal.Proposer,
-		Round:    inst.round,
-		Sequence: inst.sequence,
-		Content:  []byte{nextVote},
-	}
-	GetSign(m, inst.priv)
-	inst.tp.Broadcast(m)
-	return true, false
-}
-
-func (inst *instance) getCoinInfo() []byte {
-	bsender := make([]byte, 8)
-	binary.LittleEndian.PutUint64(bsender, uint64(inst.proposal.Proposer))
-	bseq := make([]byte, 8)
-	binary.LittleEndian.PutUint64(bseq, inst.sequence)
-
-	b := make([]byte, 17)
-	b = append(b, bsender...)
-	b = append(b, bseq...)
-	b = append(b, inst.round)
-
-	return b
-}
-
-func (inst *instance) canVoteZero(sender info.IDType, seq uint64) {
-	inst.lock.Lock()
-	defer inst.lock.Unlock()
-
-	if inst.round == 0 && !inst.hasVotedZero && !inst.hasVotedOne {
-		inst.hasVotedZero = true
-		m := &message.ConsMessage{
-			Type:     message.BVAL,
-			Proposer: sender,
-			Round:    inst.round,
-			Sequence: seq,
-			Content:  []byte{0}} // vote 0
-		GetSign(m, inst.priv)
-		inst.tp.Broadcast(m)
 	}
 }
 
@@ -488,40 +434,35 @@ func (inst *instance) getProposal() *message.ConsMessage {
 	return inst.proposal
 }
 
-func serialCollection(collection [][]byte) []byte {
-	mar_collection, err := json.Marshal(collection)
-	if err != nil {
-		panic("Marshal collection failed")
-	}
+// func serialCollection(collection []HashSign) []byte {
+// 	mar_collection, err := json.Marshal(collection)
+// 	if err != nil {
+// 		panic("Marshal collection failed")
+// 	}
 
-	return mar_collection
-}
+// 	return mar_collection
+// }
 
-func deserialCollection(data []byte) [][]byte {
-	var collection [][]byte
-	err := json.Unmarshal(data, &collection)
-	if err != nil {
-		panic("Unmarshal collection failed")
-	}
-	return collection
+// func deserialCollection(data []byte) []HashSign {
+// 	var collection []HashSign
+// 	err := json.Unmarshal(data, &collection)
+// 	if err != nil {
+// 		panic("Unmarshal collection failed")
+// 	}
+// 	return collection
+// }
+
+type HashSign struct {
+	Hash []byte
+	Sign []byte
 }
 
 func GetSign(msg *message.ConsMessage, priv *ecdsa.PrivateKey) {
-	msg_type, _ := json.Marshal(msg.Type)
-	msg_proposer, _ := json.Marshal(msg.Proposer)
-	msg_round, _ := json.Marshal(msg.Round)
-	msg_sequence, _ := json.Marshal(msg.Sequence)
-	msg_content, _ := json.Marshal(msg.Content)
-	mar_msg := append(msg_type, msg_proposer...)
-	mar_msg = append(mar_msg, msg_round...)
-	mar_msg = append(mar_msg, msg_sequence...)
-	mar_msg = append(mar_msg, msg_content...)
-
-	hash, err := sha256.ComputeHash(mar_msg)
+	content, _ := json.Marshal(msg.Content)
+	hash, err := sha256.ComputeHash(content)
 	if err != nil {
 		panic("sha256 computeHash failed")
 	}
-
 	sig, err := myecdsa.SignECDSA(priv, hash)
 	if err != nil {
 		panic("myecdsa signECDSA failed")
@@ -531,25 +472,14 @@ func GetSign(msg *message.ConsMessage, priv *ecdsa.PrivateKey) {
 }
 
 func VerifySign(msg message.ConsMessage, priv *ecdsa.PrivateKey) bool {
-	msg_type, _ := json.Marshal(msg.Type)
-	msg_proposer, _ := json.Marshal(msg.Proposer)
-	msg_round, _ := json.Marshal(msg.Round)
-	msg_sequence, _ := json.Marshal(msg.Sequence)
-	msg_content, _ := json.Marshal(msg.Content)
-	mar_msg := append(msg_type, msg_proposer...)
-	mar_msg = append(mar_msg, msg_round...)
-	mar_msg = append(mar_msg, msg_sequence...)
-	mar_msg = append(mar_msg, msg_content...)
-
-	hash, err := sha256.ComputeHash(mar_msg)
+	content, _ := json.Marshal(msg.Content)
+	hash, err := sha256.ComputeHash(content)
 	if err != nil {
 		panic("sha256 computeHash failed")
 	}
-
 	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, msg.Signature, hash)
-
 	if err != nil {
-		fmt.Println("Failed to verify a message: ", msg.Type)
+		fmt.Println("Failed to verify a message: ", msg.Type, err)
 	}
 
 	return b
