@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"path"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -166,6 +167,17 @@ func dial(p *peer, id info.IDType, msgc chan *message.ConsMessage) {
 }
 
 func (sr *streamReader) run() {
+	for i := 0; i < runtime.NumCPU()-1; i++ {
+		go func() {
+			for {
+				var m message.ConsMessage
+				if err := sr.decoder.Decode(&m); err != nil {
+					log.Fatal("decode error:", err)
+				}
+				sr.msgc <- &m
+			}
+		}()
+	}
 	for {
 		var m message.ConsMessage
 		if err := sr.decoder.Decode(&m); err != nil {
