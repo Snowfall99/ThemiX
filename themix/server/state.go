@@ -69,10 +69,6 @@ func initState(lg *zap.Logger,
 
 func (st *state) insertMsg(msg *message.ConsMessage) {
 	st.lock.RLock()
-	// if msg.Sequence < st.collected {
-	// 	st.lock.RUnlock()
-	// 	return
-	// }
 
 	if exec, ok := st.execs[msg.Sequence]; ok {
 		st.lock.RUnlock()

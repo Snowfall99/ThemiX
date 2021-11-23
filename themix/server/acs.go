@@ -57,7 +57,6 @@ func initACS(st *state,
 		instances: make([]*instance, n),
 		reqc:      reqc,
 		lock:      sync.Mutex{},
-		//coordinator: coordinator
 	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {

@@ -80,14 +80,6 @@ func (proposer *Proposer) propose(request []byte) {
 			zap.Int("signature", int(msg.Signature[0])))
 	}
 
-	// // send propose to coordinator
-	// data := "start " + strconv.FormatUint(msg.Sequence, 10)
-	// _, err := proposer.coordinator.Write([]byte(data))
-	// if err != nil {
-	// 	fmt.Println("send propose to coordinator failed: ", err.Error())
-	// 	return
-	// }
-
 	proposer.seq++
 
 	proposer.lock.Unlock()
