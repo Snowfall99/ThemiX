@@ -169,13 +169,14 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 */
 	case message.VAL:
 		if inst.proposal != nil {
-			verify := VerifySign(msg.Signature, inst.hash, inst.priv)
+			verify := VerifySign(msg, inst.priv)
 			if !verify {
 				return false, false
 			}
 		}
 		inst.proposal = msg
-		hash, _ := sha256.ComputeHash(msg.Content)
+		content, _ := json.Marshal(msg.Content)
+		hash, _ := sha256.ComputeHash(content)
 		inst.hash = hash
 		if !inst.hasEcho {
 			// broadcast VAL(v)src, ECHO(v)i
@@ -206,7 +207,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 	 * broadcast READY(v)i
 	 */
 	case message.ECHO:
-		verify := VerifySign(msg.Signature, inst.hash, inst.priv)
+		verify := VerifySign(msg, inst.priv)
 		if !verify {
 			return false, false
 		}
@@ -245,7 +246,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		return inst.isFastDecided()
 	case message.BVAL:
-		verify := VerifySign(msg.Signature, msg.Content, inst.priv)
+		verify := VerifySign(msg, inst.priv)
 		if !verify {
 			return false, false
 		}
@@ -316,7 +317,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 			return inst.isFastDecided()
 		}
 	case message.AUX:
-		verify := VerifySign(msg.Signature, msg.Content, inst.priv)
+		verify := VerifySign(msg, inst.priv)
 		if !verify {
 			return false, false
 		}
@@ -338,7 +339,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				Sequence:   msg.Sequence,
 				Collection: collection,
 			})
-
 			inst.zeroEndorsed = true
 			if inst.canSkipCoin[inst.round] {
 				inst.tp.Broadcast(&message.ConsMessage{
@@ -361,7 +361,6 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 				Sequence:   msg.Sequence,
 				Collection: collection,
 			})
-
 			inst.oneEndorsed = true
 			if inst.canSkipCoin[inst.round] {
 				inst.tp.Broadcast(&message.ConsMessage{
@@ -388,14 +387,14 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		if msg.Content[0] == 1 && inst.proposal != nil && !inst.isDecided && inst.numOneSkip >= inst.fastgroup {
 			return inst.isFastDecided()
 		}
-		// return inst.isFastDecided()
+		return inst.isFastDecided()
 	case message.ECHO_COLLECTION:
 		if inst.fastRBC || inst.hasVotedZero || inst.hasVotedOne {
 			return false, false
 		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection {
-			if inst.echoSigns[i] != nil || sign == nil || !VerifySign(sign, inst.hash, inst.priv) {
+			if inst.echoSigns[i] != nil || sign == nil || !VerifyCollection(sign, inst.hash, inst.priv) {
 				continue
 			}
 			inst.numEcho++
@@ -419,7 +418,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection {
-			if inst.bvalZeroSigns[msg.Round][i] != nil || sign == nil || !VerifySign(sign, []byte{0}, inst.priv) {
+			if inst.bvalZeroSigns[msg.Round][i] != nil || sign == nil || !VerifyCollection(sign, []byte{0}, inst.priv) {
 				continue
 			}
 			inst.numBvalZero[msg.Round]++
@@ -445,7 +444,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection {
-			if inst.bvalOneSigns[msg.Round][i] != nil || sign == nil || !VerifySign(sign, []byte{1}, inst.priv) {
+			if inst.bvalOneSigns[msg.Round][i] != nil || sign == nil || !VerifyCollection(sign, []byte{1}, inst.priv) {
 				continue
 			}
 			inst.numBvalOne[msg.Round]++
@@ -471,7 +470,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection {
-			if inst.auxZeroSigns[msg.Round][i] != nil || sign == nil || !VerifySign(sign, []byte{0}, inst.priv) {
+			if inst.auxZeroSigns[msg.Round][i] != nil || sign == nil || !VerifyCollection(sign, []byte{0}, inst.priv) {
 				continue
 			}
 			inst.numBvalZero[msg.Round]++
@@ -495,7 +494,7 @@ func (inst *instance) insertMsg(msg *message.ConsMessage) (bool, bool) {
 		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection {
-			if inst.auxOneSigns[msg.Round][i] != nil || sign == nil || !VerifySign(sign, []byte{1}, inst.priv) {
+			if inst.auxOneSigns[msg.Round][i] != nil || sign == nil || !VerifyCollection(sign, []byte{1}, inst.priv) {
 				continue
 			}
 			inst.numBvalOne[msg.Round]++
@@ -566,7 +565,8 @@ func deserialCollection(data []byte) [][]byte {
 }
 
 func GetSign(msg *message.ConsMessage, priv *ecdsa.PrivateKey) {
-	hash, err := sha256.ComputeHash(msg.Content)
+	content, _ := json.Marshal(msg.Content)
+	hash, err := sha256.ComputeHash(content)
 	if err != nil {
 		panic("sha256 computeHash failed")
 	}
@@ -578,8 +578,23 @@ func GetSign(msg *message.ConsMessage, priv *ecdsa.PrivateKey) {
 	msg.Signature = sig
 }
 
-func VerifySign(sign, content []byte, priv *ecdsa.PrivateKey) bool {
-	hash, _ := sha256.ComputeHash(content)
+func VerifySign(msg *message.ConsMessage, priv *ecdsa.PrivateKey) bool {
+	content, _ := json.Marshal(msg.Content)
+	hash, err := sha256.ComputeHash(content)
+	if err != nil {
+		panic("sha256 computeHash failed")
+	}
+	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, msg.Signature, hash)
+	if err != nil {
+		fmt.Println("Failed to verify a message: ", err)
+	}
+	return b
+}
+
+func VerifyCollection(sign, hash []byte, priv *ecdsa.PrivateKey) bool {
+	if hash == nil {
+		return false
+	}
 	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, sign, hash)
 	if err != nil {
 		fmt.Println("Failed to verify a message: ", err)
