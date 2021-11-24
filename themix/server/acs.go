@@ -21,7 +21,7 @@ import (
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
-	"go.themix.io/transport/message"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +36,7 @@ type asyncCommSubset struct {
 	numDecidedOne uint64
 	instances     []*instance
 	proposer      *Proposer
-	reqc          chan *message.WholeMessage
+	reqc          chan *consmsgpb.WholeMessage
 	lock          sync.Mutex
 }
 
@@ -47,7 +47,7 @@ func initACS(st *state,
 	pkPath string,
 	proposer *Proposer,
 	seq uint64, n uint64,
-	reqc chan *message.WholeMessage) *asyncCommSubset {
+	reqc chan *consmsgpb.WholeMessage) *asyncCommSubset {
 	re := &asyncCommSubset{
 		st:        st,
 		lg:        lg,
@@ -65,7 +65,7 @@ func initACS(st *state,
 	return re
 }
 
-func (acs *asyncCommSubset) insertMsg(msg *message.WholeMessage) {
+func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 	isDecided, isFinished := acs.instances[msg.ConsMsg.Proposer].insertMsg(msg)
 	if isDecided {
 		acs.lock.Lock()

@@ -19,8 +19,7 @@ import (
 
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
-	"go.themix.io/transport/info"
-	"go.themix.io/transport/message"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
@@ -30,12 +29,12 @@ type state struct {
 	blsSig    *bls.BlsSig
 	pkPath    string
 	proposer  *Proposer
-	id        info.IDType
+	id        uint32
 	n         uint64
 	collected uint64
 	execs     map[uint64]*asyncCommSubset
 	lock      sync.RWMutex
-	reqc      chan *message.WholeMessage
+	reqc      chan *consmsgpb.WholeMessage
 	repc      chan []byte
 }
 
@@ -43,7 +42,7 @@ func initState(lg *zap.Logger,
 	tp transport.Transport,
 	blsSig *bls.BlsSig,
 	pkPath string,
-	id info.IDType,
+	id uint32,
 	proposer *Proposer,
 	n uint64, repc chan []byte,
 	batchsize int) *state {
@@ -58,14 +57,14 @@ func initState(lg *zap.Logger,
 		collected: 0,
 		execs:     make(map[uint64]*asyncCommSubset),
 		lock:      sync.RWMutex{},
-		reqc:      make(chan *message.WholeMessage, 2*int(n)*batchsize),
+		reqc:      make(chan *consmsgpb.WholeMessage, 2*int(n)*batchsize),
 		repc:      repc,
 	}
 	go st.run()
 	return st
 }
 
-func (st *state) insertMsg(msg *message.WholeMessage) {
+func (st *state) insertMsg(msg *consmsgpb.WholeMessage) {
 	st.lock.RLock()
 
 	if exec, ok := st.execs[msg.ConsMsg.Sequence]; ok {

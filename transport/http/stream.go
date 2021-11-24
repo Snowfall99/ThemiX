@@ -27,8 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"go.themix.io/transport/info"
-	"go.themix.io/transport/message"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
@@ -39,8 +38,8 @@ var (
 )
 
 type streamWriter struct {
-	peerID  info.IDType
-	msgc    chan *message.WholeMessage
+	peerID  uint32
+	msgc    chan *consmsgpb.WholeMessage
 	encoder *gob.Encoder
 	flusher http.Flusher
 	// isReady bool
@@ -48,12 +47,12 @@ type streamWriter struct {
 }
 
 type streamReader struct {
-	msgc    chan *message.WholeMessage
+	msgc    chan *consmsgpb.WholeMessage
 	decoder *gob.Decoder
 }
 
 type peer struct {
-	peerID info.IDType
+	peerID uint32
 	addr   string
 	reader *streamReader
 	writer *streamWriter
@@ -61,18 +60,18 @@ type peer struct {
 
 // HTTPTransport is responsible for message exchange among nodes
 type HTTPTransport struct {
-	id    info.IDType
-	peers map[info.IDType]*peer
-	msgc  chan *message.WholeMessage
+	id    uint32
+	peers map[uint32]*peer
+	msgc  chan *consmsgpb.WholeMessage
 	mu    sync.Mutex
 }
 
 func init() {
-	gob.Register(&message.WholeMessage{})
+	gob.Register(&consmsgpb.WholeMessage{})
 }
 
 // Broadcast msg to all peers
-func (tp *HTTPTransport) Broadcast(msg *message.WholeMessage) {
+func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -96,12 +95,12 @@ func (tp *HTTPTransport) Broadcast(msg *message.WholeMessage) {
 
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
-func InitTransport(lg *zap.Logger, id info.IDType, port int, peers []string) (*HTTPTransport,
-	chan *message.WholeMessage, chan []byte, chan []byte) {
-	msgc := make(chan *message.WholeMessage, streamBufSize)
-	tp := &HTTPTransport{id: id, peers: make(map[info.IDType]*peer), msgc: msgc, mu: sync.Mutex{}}
+func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTransport,
+	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
+	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
+	tp := &HTTPTransport{id: id, peers: make(map[uint32]*peer), msgc: msgc, mu: sync.Mutex{}}
 	for i, p := range peers {
-		if index := info.IDType(i); index != id {
+		if index := uint32(i); index != id {
 			tp.peers[index] = &peer{peerID: index, addr: p}
 		}
 	}
@@ -134,7 +133,7 @@ func (tp *HTTPTransport) connect() {
 	}
 }
 
-func dial(p *peer, id info.IDType, msgc chan *message.WholeMessage) {
+func dial(p *peer, id uint32, msgc chan *consmsgpb.WholeMessage) {
 	var r *streamReader
 	for {
 		req, err := http.NewRequest("GET",
@@ -170,7 +169,7 @@ func (sr *streamReader) run() {
 	for i := 0; i < runtime.NumCPU()-1; i++ {
 		go func() {
 			for {
-				var m message.WholeMessage
+				var m consmsgpb.WholeMessage
 				if err := sr.decoder.Decode(&m); err != nil {
 					log.Fatal("decode error:", err)
 				}
@@ -179,7 +178,7 @@ func (sr *streamReader) run() {
 		}()
 	}
 	for {
-		var m message.WholeMessage
+		var m consmsgpb.WholeMessage
 		if err := sr.decoder.Decode(&m); err != nil {
 			log.Fatal("decode error:", err)
 		}
@@ -210,12 +209,12 @@ func (tp *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	fromStr := path.Base(r.URL.Path)
 	fromID, _ := strconv.ParseUint(fromStr, 10, 64)
-	p := tp.peers[info.IDType(fromID)]
+	p := tp.peers[uint32(fromID)]
 
 	enc := gob.NewEncoder(w)
 
-	p.writer = &streamWriter{msgc: make(chan *message.WholeMessage, streamBufSize),
-		encoder: enc, flusher: w.(http.Flusher), peerID: info.IDType(fromID)}
+	p.writer = &streamWriter{msgc: make(chan *consmsgpb.WholeMessage, streamBufSize),
+		encoder: enc, flusher: w.(http.Flusher), peerID: uint32(fromID)}
 
 	p.writer.run()
 }
@@ -224,7 +223,7 @@ func (tp *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type ClientMsgProcessor struct {
 	num  int
 	lg   *zap.Logger
-	id   info.IDType
+	id   uint32
 	reqc chan []byte
 	repc chan []byte
 }

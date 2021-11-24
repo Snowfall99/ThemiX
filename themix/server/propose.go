@@ -20,8 +20,7 @@ import (
 
 	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/transport"
-	"go.themix.io/transport/info"
-	"go.themix.io/transport/message"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
@@ -31,12 +30,12 @@ type Proposer struct {
 	reqc chan []byte
 	tp   transport.Transport
 	seq  uint64
-	id   info.IDType
+	id   uint32
 	lock sync.Mutex
 	priv *ecdsa.PrivateKey
 }
 
-func initProposer(lg *zap.Logger, tp transport.Transport, id info.IDType, reqc chan []byte, pkPath string) *Proposer {
+func initProposer(lg *zap.Logger, tp transport.Transport, id uint32, reqc chan []byte, pkPath string) *Proposer {
 	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}}
 	proposer.priv, _ = myecdsa.LoadKey(pkPath)
 	go proposer.run()
@@ -60,13 +59,13 @@ func (proposer *Proposer) run() {
 	}
 }
 
-// Propose broadcast a propose message with the given request and the current sequence number
+// Propose broadcast a propose consmsgpb with the given request and the current sequence number
 func (proposer *Proposer) propose(request []byte) {
 	proposer.lock.Lock()
 
-	msg := &message.WholeMessage{
-		ConsMsg: &message.ConsMessage{
-			Type:     message.VAL,
+	msg := &consmsgpb.WholeMessage{
+		ConsMsg: &consmsgpb.ConsMessage{
+			Type:     consmsgpb.MessageType_VAL,
 			Proposer: proposer.id,
 			Sequence: proposer.seq,
 			Content:  request,
