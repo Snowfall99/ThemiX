@@ -68,20 +68,20 @@ func initState(lg *zap.Logger,
 func (st *state) insertMsg(msg *message.WholeMessage) {
 	st.lock.RLock()
 
-	if exec, ok := st.execs[msg.Sequence]; ok {
+	if exec, ok := st.execs[msg.ConsMsg.Sequence]; ok {
 		st.lock.RUnlock()
 		exec.insertMsg(msg)
 	} else {
-		if st.collected <= msg.Sequence {
+		if st.collected <= msg.ConsMsg.Sequence {
 			st.lock.RUnlock()
 
-			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.Sequence, st.n, st.reqc)
+			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
 
 			st.lock.Lock()
-			if e, ok := st.execs[msg.Sequence]; ok {
+			if e, ok := st.execs[msg.ConsMsg.Sequence]; ok {
 				exec = e
 			} else {
-				st.execs[msg.Sequence] = exec
+				st.execs[msg.ConsMsg.Sequence] = exec
 			}
 			st.lock.Unlock()
 
@@ -104,7 +104,7 @@ func (st *state) garbageCollect(seq uint64) {
 func (st *state) run() {
 	for {
 		req := <-st.reqc
-		if req.Proposer == st.id {
+		if req.ConsMsg.Proposer == st.id {
 			st.repc <- []byte{}
 		}
 	}

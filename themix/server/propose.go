@@ -65,18 +65,20 @@ func (proposer *Proposer) propose(request []byte) {
 	proposer.lock.Lock()
 
 	msg := &message.WholeMessage{
-		Type:     message.VAL,
-		Proposer: proposer.id,
-		From:     proposer.id,
-		Sequence: proposer.seq,
-		Content:  request}
+		ConsMsg: &message.ConsMessage{
+			Type:     message.VAL,
+			Proposer: proposer.id,
+			Sequence: proposer.seq,
+			Content:  request,
+		},
+		From: proposer.id}
 	GetSign(msg, proposer.priv)
 
 	if len(request) > 0 {
 		proposer.lg.Info("propose",
-			zap.Int("proposer", int(msg.Proposer)),
-			zap.Int("seq", int(msg.Sequence)),
-			zap.Int("content", int(msg.Content[0])),
+			zap.Int("proposer", int(msg.ConsMsg.Proposer)),
+			zap.Int("seq", int(msg.ConsMsg.Sequence)),
+			zap.Int("content", int(msg.ConsMsg.Content[0])),
 			zap.Int("signature", int(msg.Signature[0])))
 	}
 
