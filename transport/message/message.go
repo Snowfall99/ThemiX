@@ -44,8 +44,8 @@ const (
 	VAL_SIGN             MessageType = 14
 )
 
-// ConsMessage is the message type exchanged for achieving consensus
-type ConsMessage struct {
+// WholeMessage is the message type exchanged for achieving consensus
+type WholeMessage struct {
 	Type       MessageType
 	Proposer   info.IDType
 	From       info.IDType

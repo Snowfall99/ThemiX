@@ -36,7 +36,7 @@ type asyncCommSubset struct {
 	numDecidedOne uint64
 	instances     []*instance
 	proposer      *Proposer
-	reqc          chan *message.ConsMessage
+	reqc          chan *message.WholeMessage
 	lock          sync.Mutex
 }
 
@@ -47,7 +47,7 @@ func initACS(st *state,
 	pkPath string,
 	proposer *Proposer,
 	seq uint64, n uint64,
-	reqc chan *message.ConsMessage) *asyncCommSubset {
+	reqc chan *message.WholeMessage) *asyncCommSubset {
 	re := &asyncCommSubset{
 		st:        st,
 		lg:        lg,
@@ -65,7 +65,7 @@ func initACS(st *state,
 	return re
 }
 
-func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
+func (acs *asyncCommSubset) insertMsg(msg *message.WholeMessage) {
 	isDecided, isFinished := acs.instances[msg.Proposer].insertMsg(msg)
 	if isDecided {
 		acs.lock.Lock()

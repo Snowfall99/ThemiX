@@ -40,7 +40,7 @@ var (
 
 type streamWriter struct {
 	peerID  info.IDType
-	msgc    chan *message.ConsMessage
+	msgc    chan *message.WholeMessage
 	encoder *gob.Encoder
 	flusher http.Flusher
 	// isReady bool
@@ -48,7 +48,7 @@ type streamWriter struct {
 }
 
 type streamReader struct {
-	msgc    chan *message.ConsMessage
+	msgc    chan *message.WholeMessage
 	decoder *gob.Decoder
 }
 
@@ -63,16 +63,16 @@ type peer struct {
 type HTTPTransport struct {
 	id    info.IDType
 	peers map[info.IDType]*peer
-	msgc  chan *message.ConsMessage
+	msgc  chan *message.WholeMessage
 	mu    sync.Mutex
 }
 
 func init() {
-	gob.Register(&message.ConsMessage{})
+	gob.Register(&message.WholeMessage{})
 }
 
 // Broadcast msg to all peers
-func (tp *HTTPTransport) Broadcast(msg *message.ConsMessage) {
+func (tp *HTTPTransport) Broadcast(msg *message.WholeMessage) {
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -97,8 +97,8 @@ func (tp *HTTPTransport) Broadcast(msg *message.ConsMessage) {
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
 func InitTransport(lg *zap.Logger, id info.IDType, port int, peers []string) (*HTTPTransport,
-	chan *message.ConsMessage, chan []byte, chan []byte) {
-	msgc := make(chan *message.ConsMessage, streamBufSize)
+	chan *message.WholeMessage, chan []byte, chan []byte) {
+	msgc := make(chan *message.WholeMessage, streamBufSize)
 	tp := &HTTPTransport{id: id, peers: make(map[info.IDType]*peer), msgc: msgc, mu: sync.Mutex{}}
 	for i, p := range peers {
 		if index := info.IDType(i); index != id {
@@ -134,7 +134,7 @@ func (tp *HTTPTransport) connect() {
 	}
 }
 
-func dial(p *peer, id info.IDType, msgc chan *message.ConsMessage) {
+func dial(p *peer, id info.IDType, msgc chan *message.WholeMessage) {
 	var r *streamReader
 	for {
 		req, err := http.NewRequest("GET",
@@ -170,7 +170,7 @@ func (sr *streamReader) run() {
 	for i := 0; i < runtime.NumCPU()-1; i++ {
 		go func() {
 			for {
-				var m message.ConsMessage
+				var m message.WholeMessage
 				if err := sr.decoder.Decode(&m); err != nil {
 					log.Fatal("decode error:", err)
 				}
@@ -179,7 +179,7 @@ func (sr *streamReader) run() {
 		}()
 	}
 	for {
-		var m message.ConsMessage
+		var m message.WholeMessage
 		if err := sr.decoder.Decode(&m); err != nil {
 			log.Fatal("decode error:", err)
 		}
@@ -214,7 +214,7 @@ func (tp *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	enc := gob.NewEncoder(w)
 
-	p.writer = &streamWriter{msgc: make(chan *message.ConsMessage, streamBufSize),
+	p.writer = &streamWriter{msgc: make(chan *message.WholeMessage, streamBufSize),
 		encoder: enc, flusher: w.(http.Flusher), peerID: info.IDType(fromID)}
 
 	p.writer.run()

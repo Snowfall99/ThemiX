@@ -35,9 +35,8 @@ type state struct {
 	collected uint64
 	execs     map[uint64]*asyncCommSubset
 	lock      sync.RWMutex
-	reqc      chan *message.ConsMessage
+	reqc      chan *message.WholeMessage
 	repc      chan []byte
-	// coordinator net.Conn
 }
 
 func initState(lg *zap.Logger,
@@ -59,15 +58,14 @@ func initState(lg *zap.Logger,
 		collected: 0,
 		execs:     make(map[uint64]*asyncCommSubset),
 		lock:      sync.RWMutex{},
-		reqc:      make(chan *message.ConsMessage, 2*int(n)*batchsize),
+		reqc:      make(chan *message.WholeMessage, 2*int(n)*batchsize),
 		repc:      repc,
-		//coordinator: coordinator
 	}
 	go st.run()
 	return st
 }
 
-func (st *state) insertMsg(msg *message.ConsMessage) {
+func (st *state) insertMsg(msg *message.WholeMessage) {
 	st.lock.RLock()
 
 	if exec, ok := st.execs[msg.Sequence]; ok {
