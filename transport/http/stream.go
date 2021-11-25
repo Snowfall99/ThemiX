@@ -15,20 +15,19 @@
 package http
 
 import (
-	"encoding/gob"
+	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
-	"path"
-	"runtime"
 	"strconv"
 	"sync"
-	"time"
 
 	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -38,17 +37,20 @@ var (
 )
 
 type streamWriter struct {
-	peerID  uint32
-	msgc    chan *consmsgpb.WholeMessage
-	encoder *gob.Encoder
-	flusher http.Flusher
+	peerID uint32
+	msgc   chan *consmsgpb.WholeMessage
+	// w      http.ResponseWriter
+	// encoder *gob.Encoder
+	// flusher http.Flusher
 	// isReady bool
 	// mu      sync.Mutex
 }
 
 type streamReader struct {
-	msgc    chan *consmsgpb.WholeMessage
-	decoder *gob.Decoder
+	msgc chan *consmsgpb.WholeMessage
+	// decoder *gob.Decoder
+	resp io.Reader
+	conn *net.Conn
 }
 
 type peer struct {
@@ -66,9 +68,9 @@ type HTTPTransport struct {
 	mu    sync.Mutex
 }
 
-func init() {
-	gob.Register(&consmsgpb.WholeMessage{})
-}
+// func init() {
+// 	gob.Register(&consmsgpb.WholeMessage{})
+// }
 
 // Broadcast msg to all peers
 func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
@@ -102,10 +104,12 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTr
 	for i, p := range peers {
 		if index := uint32(i); index != id {
 			tp.peers[index] = &peer{peerID: index, addr: p}
+			tp.peers[index].writer = &streamWriter{msgc: make(chan *consmsgpb.WholeMessage, streamBufSize), peerID: index}
+			go tp.peers[index].writer.run(tp.peers, tp.id)
 		}
 	}
 
-	tp.connect()
+	// tp.connect()
 
 	reqc := make(chan []byte, streamBufSize)
 	repc := make(chan []byte, streamBufSize)
@@ -127,96 +131,88 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTr
 	return tp, msgc, reqc, repc
 }
 
-func (tp *HTTPTransport) connect() {
-	for _, p := range tp.peers {
-		go dial(p, tp.id, tp.msgc)
-	}
-}
+// func (tp *HTTPTransport) connect() {
+// 	for _, p := range tp.peers {
+// 		go dial(p, tp.id, tp.msgc)
+// 	}
+// }
 
-func dial(p *peer, id uint32, msgc chan *consmsgpb.WholeMessage) {
-	var r *streamReader
-	for {
-		req, err := http.NewRequest("GET",
-			p.addr+consensusPrefix+"/"+strconv.FormatUint(uint64(id), 10), nil)
+// func dial(p *peer, id uint32, msgc chan *consmsgpb.WholeMessage) {
+// 	for {
+// 		fmt.Println("1")
+// 		resp, err := http.Get(p.addr + consensusPrefix + "/" + strconv.FormatUint(uint64(id), 10))
+// 		if err != nil {
+// 			fmt.Println(err)
+// 			time.Sleep(1 * time.Second)
+// 			continue
+// 		}
+// 		content, err := ioutil.ReadAll(resp.Body)
+// 		if err != nil {
+// 			resp.Body.Close()
+// 			log.Fatalln(err)
+// 		}
+// 		var msg consmsgpb.WholeMessage
+// 		err = proto.Unmarshal(content, &msg)
+// 		if err != nil {
+// 			log.Fatalln(err)
+// 		}
+// 		fmt.Println(&msg)
+// 		resp.Body.Close()
+// 		msgc <- &msg
+// 	}
+// }
 
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		t := &http.Transport{
-			Dial: (&net.Dialer{
-				KeepAlive: 120 * time.Second,
-			}).Dial,
-		}
-
-		resp, err := t.RoundTrip(req)
-
-		if err != nil || resp.StatusCode != http.StatusOK {
-			fmt.Println(err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		r = &streamReader{msgc: msgc,
-			decoder: gob.NewDecoder(resp.Body)}
-		break
-	}
-	p.reader = r
-	go r.run()
-}
-
-func (sr *streamReader) run() {
-	for i := 0; i < runtime.NumCPU()-1; i++ {
-		go func() {
-			for {
-				var m consmsgpb.WholeMessage
-				if err := sr.decoder.Decode(&m); err != nil {
-					log.Fatal("decode error:", err)
-				}
-				sr.msgc <- &m
-			}
-		}()
-	}
-	for {
-		var m consmsgpb.WholeMessage
-		if err := sr.decoder.Decode(&m); err != nil {
-			log.Fatal("decode error:", err)
-		}
-		sr.msgc <- &m
-	}
-}
-
-func (sw *streamWriter) run() {
+func (sw *streamWriter) run(peers map[uint32]*peer, id uint32) {
 	for {
 		m := <-sw.msgc
-		err := sw.encoder.Encode(m)
+		content, err := proto.Marshal(m)
 		if err != nil {
 			log.Fatal("encode error:", err)
 		}
-		sw.flusher.Flush()
+		req, err := http.NewRequest(http.MethodPost, peers[sw.peerID].addr+consensusPrefix+"/"+strconv.FormatUint(uint64(id), 10), bytes.NewReader(content))
+		if err != nil {
+			log.Fatalln(err)
+		}
+		client := &http.Client{}
+		for {
+			_, err = client.Do(req)
+			if err != nil {
+				log.Fatalln(err)
+				continue
+			}
+			break
+		}
 	}
 }
 
 func (tp *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		w.Header().Set("Allow", "GET")
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
+	// if r.Method != "GET" {
+	// 	w.Header().Set("Allow", "GET")
+	// 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	// 	return
+	// }
+
+	// w.WriteHeader(http.StatusOK)
+	// w.(http.Flusher).Flush()
+
+	// fromStr := path.Base(r.URL.Path)
+	// fromID, _ := strconv.ParseUint(fromStr, 10, 64)
+	// p := tp.peers[uint32(fromID)]
+
+	// p.writer = &streamWriter{msgc: make(chan *consmsgpb.WholeMessage, streamBufSize), peerID: uint32(fromID)}
+
+	// p.writer.run()
+	defer r.Body.Close()
+	content, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Fatalln(err)
 	}
-
-	w.WriteHeader(http.StatusOK)
-	w.(http.Flusher).Flush()
-
-	fromStr := path.Base(r.URL.Path)
-	fromID, _ := strconv.ParseUint(fromStr, 10, 64)
-	p := tp.peers[uint32(fromID)]
-
-	enc := gob.NewEncoder(w)
-
-	p.writer = &streamWriter{msgc: make(chan *consmsgpb.WholeMessage, streamBufSize),
-		encoder: enc, flusher: w.(http.Flusher), peerID: uint32(fromID)}
-
-	p.writer.run()
+	var msg consmsgpb.WholeMessage
+	err = proto.Unmarshal(content, &msg)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	tp.msgc <- &msg
 }
 
 // ClientMsgProcessor is responsible for listening and processing requests from clients
@@ -229,12 +225,6 @@ type ClientMsgProcessor struct {
 }
 
 func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// v, err := ioutil.ReadAll(r.Body)
-	// if err != nil {
-	// 	rprocessor.lg.Error("read client request error:", zap.Error(err))
-	// }
-
-	// key := r.RequestURI
 	defer r.Body.Close()
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
