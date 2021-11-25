@@ -16,7 +16,9 @@ package server
 
 import (
 	"crypto/ecdsa"
+	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -182,6 +184,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				ConsMsg: &consmsgpb.ConsMessage{
 					Type:     consmsgpb.MessageType_ECHO,
 					Proposer: msg.ConsMsg.Proposer,
+					Round:    msg.ConsMsg.Round,
 					Sequence: msg.ConsMsg.Sequence,
 					Content:  hash,
 				}}
@@ -411,12 +414,24 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		return inst.isFastDecided()
 	case consmsgpb.MessageType_ECHO_COLLECTION:
-		if inst.fastRBC || inst.hasVotedZero || inst.hasVotedOne {
+		if inst.fastRBC || inst.hasVotedZero || inst.hasVotedOne || inst.hash == nil {
+			return false, false
+		}
+		mc := &consmsgpb.ConsMessage{
+			Type:     consmsgpb.MessageType_ECHO,
+			Proposer: msg.ConsMsg.Proposer,
+			Round:    msg.ConsMsg.Round,
+			Sequence: msg.ConsMsg.Sequence,
+			Content:  inst.hash,
+		}
+		content, err := proto.Marshal(mc)
+		if err != nil {
+			log.Printf("proto marshal fail: %v\n", err)
 			return false, false
 		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection.Collections {
-			if inst.echoSigns.Collections[i] != nil || sign == nil || !VerifyCollection(sign, inst.hash, inst.priv) {
+			if inst.echoSigns.Collections[i] != nil || len(sign) == 0 || !VerifyCollection(content, sign, inst.priv) {
 				continue
 			}
 			inst.numEcho++
@@ -440,9 +455,21 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.zeroEndorsed || inst.oneEndorsed || inst.hasSentAux {
 			return false, false
 		}
+		mc := &consmsgpb.ConsMessage{
+			Type:     consmsgpb.MessageType_BVAL,
+			Proposer: msg.ConsMsg.Proposer,
+			Round:    msg.ConsMsg.Round,
+			Sequence: msg.ConsMsg.Sequence,
+			Content:  []byte{0},
+		}
+		content, err := proto.Marshal(mc)
+		if err != nil {
+			log.Printf("proto marshal fail: %v\n", err)
+			return false, false
+		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection.Collections {
-			if inst.bvalZeroSigns[msg.ConsMsg.Round].Collections[i] != nil || sign == nil || !VerifyCollection(sign, []byte{0}, inst.priv) {
+			if inst.bvalZeroSigns[msg.ConsMsg.Round].Collections[i] != nil || len(sign) == 0 || !VerifyCollection(content, sign, inst.priv) {
 				continue
 			}
 			inst.numBvalZero[msg.ConsMsg.Round]++
@@ -469,9 +496,21 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.oneEndorsed || inst.zeroEndorsed || inst.hasSentAux {
 			return false, false
 		}
+		mc := &consmsgpb.ConsMessage{
+			Type:     consmsgpb.MessageType_BVAL,
+			Proposer: msg.ConsMsg.Proposer,
+			Round:    msg.ConsMsg.Round,
+			Sequence: msg.ConsMsg.Sequence,
+			Content:  []byte{1},
+		}
+		content, err := proto.Marshal(mc)
+		if err != nil {
+			log.Printf("proto marshal fail: %v\n", err)
+			return false, false
+		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection.Collections {
-			if inst.bvalOneSigns[msg.ConsMsg.Round].Collections[i] != nil || sign == nil || !VerifyCollection(sign, []byte{1}, inst.priv) {
+			if inst.bvalOneSigns[msg.ConsMsg.Round].Collections[i] != nil || len(sign) == 0 || !VerifyCollection(content, sign, inst.priv) {
 				continue
 			}
 			inst.numBvalOne[msg.ConsMsg.Round]++
@@ -498,9 +537,21 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.fastAuxZero || inst.fastAuxOne || inst.round != msg.ConsMsg.Round {
 			return false, false
 		}
+		mc := &consmsgpb.ConsMessage{
+			Type:     consmsgpb.MessageType_AUX,
+			Proposer: msg.ConsMsg.Proposer,
+			Round:    msg.ConsMsg.Round,
+			Sequence: msg.ConsMsg.Sequence,
+			Content:  []byte{0},
+		}
+		content, err := proto.Marshal(mc)
+		if err != nil {
+			log.Printf("proto marshal fail: %v\n", err)
+			return false, false
+		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection.Collections {
-			if inst.auxZeroSigns[msg.ConsMsg.Round].Collections[i] != nil || sign == nil || !VerifyCollection(sign, []byte{0}, inst.priv) {
+			if inst.auxZeroSigns[msg.ConsMsg.Round].Collections[i] != nil || len(sign) == 0 || !VerifyCollection(content, sign, inst.priv) {
 				continue
 			}
 			inst.numBvalZero[msg.ConsMsg.Round]++
@@ -524,9 +575,21 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.fastAuxZero || inst.fastAuxOne || inst.round != msg.ConsMsg.Round {
 			return false, false
 		}
+		mc := &consmsgpb.ConsMessage{
+			Type:     consmsgpb.MessageType_AUX,
+			Proposer: msg.ConsMsg.Proposer,
+			Round:    msg.ConsMsg.Round,
+			Sequence: msg.ConsMsg.Sequence,
+			Content:  []byte{1},
+		}
+		content, err := proto.Marshal(mc)
+		if err != nil {
+			log.Printf("proto marshal fail: %v\n", err)
+			return false, false
+		}
 		collection := deserialCollection(msg.Collection)
 		for i, sign := range collection.Collections {
-			if inst.auxOneSigns[msg.ConsMsg.Round].Collections[i] != nil || sign == nil || !VerifyCollection(sign, []byte{1}, inst.priv) {
+			if inst.auxOneSigns[msg.ConsMsg.Round].Collections[i] != nil || len(sign) == 0 || !VerifyCollection(content, sign, inst.priv) {
 				continue
 			}
 			inst.numBvalOne[msg.ConsMsg.Round]++
@@ -623,13 +686,16 @@ func VerifySign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) bool {
 	return b
 }
 
-func VerifyCollection(sign, hash []byte, priv *ecdsa.PrivateKey) bool {
-	if hash == nil {
-		return false
+func VerifyCollection(content, sign []byte, priv *ecdsa.PrivateKey) bool {
+	hash, err := sha256.ComputeHash(content)
+	if err != nil {
+		panic("sha256 computeHash failed")
 	}
-	b, _ := myecdsa.VerifyECDSA(&priv.PublicKey, sign, hash)
-	// if err != nil {
-	// 	fmt.Println("Failed to verify a consmsgpb: ", err)
-	// }
+	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, sign, hash)
+	if err != nil {
+		fmt.Println("len(sign):", len(sign))
+		fmt.Println("binary.size:", binary.Size(sign))
+		log.Println("Failed to verify a consmsgpb: ", sign[0])
+	}
 	return b
 }
