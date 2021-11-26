@@ -139,21 +139,21 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		return false, false
 	}
 
-	// if len(msg.ConsMsg.Content) > 0 {
-	// 	inst.lg.Info("receive msg",
-	// 		zap.String("type", consmsgpb.MessageType_name[int32(msg.ConsMsg.Type)]),
-	// 		zap.Int("proposer", int(msg.ConsMsg.Proposer)),
-	// 		zap.Int("seq", int(msg.ConsMsg.Sequence)),
-	// 		zap.Int("round", int(msg.ConsMsg.Round)),
-	// 		zap.Int("from", int(msg.From)))
-	// } else {
-	// 	inst.lg.Info("receive msg",
-	// 		zap.String("type", consmsgpb.MessageType_name[int32(msg.ConsMsg.Type)]),
-	// 		zap.Int("proposer", int(msg.ConsMsg.Proposer)),
-	// 		zap.Int("seq", int(msg.ConsMsg.Sequence)),
-	// 		zap.Int("round", int(msg.ConsMsg.Round)),
-	// 		zap.Int("from", int(msg.From)))
-	// }
+	if len(msg.ConsMsg.Content) > 0 {
+		inst.lg.Info("receive msg",
+			zap.String("type", consmsgpb.MessageType_name[int32(msg.ConsMsg.Type)]),
+			zap.Int("proposer", int(msg.ConsMsg.Proposer)),
+			zap.Int("seq", int(msg.ConsMsg.Sequence)),
+			zap.Int("round", int(msg.ConsMsg.Round)),
+			zap.Int("from", int(msg.From)))
+	} else {
+		inst.lg.Info("receive msg",
+			zap.String("type", consmsgpb.MessageType_name[int32(msg.ConsMsg.Type)]),
+			zap.Int("proposer", int(msg.ConsMsg.Proposer)),
+			zap.Int("seq", int(msg.ConsMsg.Sequence)),
+			zap.Int("round", int(msg.ConsMsg.Round)),
+			zap.Int("from", int(msg.From)))
+	}
 
 	if inst.isFinished {
 		return false, false

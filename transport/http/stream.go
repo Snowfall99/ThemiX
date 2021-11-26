@@ -17,13 +17,14 @@ package http
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"path"
 	"strconv"
 	"sync"
+	"time"
 
 	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
@@ -39,6 +40,7 @@ var (
 type streamWriter struct {
 	peerID uint32
 	msgc   chan *consmsgpb.WholeMessage
+	client *http.Client
 	// w      http.ResponseWriter
 	// encoder *gob.Encoder
 	// flusher http.Flusher
@@ -49,8 +51,7 @@ type streamWriter struct {
 type streamReader struct {
 	msgc chan *consmsgpb.WholeMessage
 	// decoder *gob.Decoder
-	resp io.Reader
-	conn *net.Conn
+	inc chan []byte
 }
 
 type peer struct {
@@ -106,6 +107,8 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTr
 			tp.peers[index] = &peer{peerID: index, addr: p}
 			tp.peers[index].writer = &streamWriter{msgc: make(chan *consmsgpb.WholeMessage, streamBufSize), peerID: index}
 			go tp.peers[index].writer.run(tp.peers, tp.id)
+			tp.peers[index].reader = &streamReader{msgc: tp.msgc, inc: make(chan []byte, streamBufSize)}
+			go tp.peers[index].reader.run()
 		}
 	}
 
@@ -162,7 +165,26 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTr
 // 	}
 // }
 
+func (sr *streamReader) run() {
+	for {
+		content := <-sr.inc
+		var msg consmsgpb.WholeMessage
+		err := proto.Unmarshal(content, &msg)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		sr.msgc <- &msg
+	}
+}
+
 func (sw *streamWriter) run(peers map[uint32]*peer, id uint32) {
+	sw.client = &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				KeepAlive: 120 * time.Second,
+			}).DialContext,
+		},
+	}
 	for {
 		m := <-sw.msgc
 		content, err := proto.Marshal(m)
@@ -173,9 +195,8 @@ func (sw *streamWriter) run(peers map[uint32]*peer, id uint32) {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		client := &http.Client{}
 		for {
-			_, err = client.Do(req)
+			_, err = sw.client.Do(req)
 			if err != nil {
 				log.Fatalln(err)
 				continue
@@ -203,16 +224,20 @@ func (tp *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// p.writer.run()
 	defer r.Body.Close()
+	fromStr := path.Base(r.URL.Path)
+	fromID, _ := strconv.ParseUint(fromStr, 10, 64)
+	p := tp.peers[uint32(fromID)]
 	content, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	var msg consmsgpb.WholeMessage
-	err = proto.Unmarshal(content, &msg)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	tp.msgc <- &msg
+	p.reader.inc <- content
+	// var msg consmsgpb.WholeMessage
+	// err = proto.Unmarshal(content, &msg)
+	// if err != nil {
+	// 	log.Fatalln(err)
+	// }
+	// tp.msgc <- &msg
 }
 
 // ClientMsgProcessor is responsible for listening and processing requests from clients
