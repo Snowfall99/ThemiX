@@ -15,63 +15,58 @@
 package http
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
-	"path"
 	"strconv"
+	"strings"
 	"sync"
-	"time"
 
+	"github.com/perlin-network/noise"
 	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
 var (
-	consensusPrefix = "/cons"
-	clientPrefix    = "/client"
-	streamBufSize   = 40960
+	clientPrefix  = "/client"
+	streamBufSize = 40960
 )
-
-type streamWriter struct {
-	peerID uint32
-	msgc   chan *consmsgpb.WholeMessage
-	client *http.Client
-	// w      http.ResponseWriter
-	// encoder *gob.Encoder
-	// flusher http.Flusher
-	// isReady bool
-	// mu      sync.Mutex
-}
-
-type streamReader struct {
-	msgc chan *consmsgpb.WholeMessage
-	// decoder *gob.Decoder
-	inc chan []byte
-}
 
 type peer struct {
 	peerID uint32
 	addr   string
-	reader *streamReader
-	writer *streamWriter
 }
 
 // HTTPTransport is responsible for message exchange among nodes
 type HTTPTransport struct {
 	id    uint32
+	node  *noise.Node
 	peers map[uint32]*peer
 	msgc  chan *consmsgpb.WholeMessage
 	mu    sync.Mutex
 }
 
-// func init() {
-// 	gob.Register(&consmsgpb.WholeMessage{})
-// }
+type NoiseMessage struct {
+	Msg *consmsgpb.WholeMessage
+}
+
+func (m NoiseMessage) Marshal() []byte {
+	data, _ := proto.Marshal(m.Msg)
+	return data
+}
+
+func UnmarshalNoiseMessage(buf []byte) (NoiseMessage, error) {
+	m := NoiseMessage{Msg: new(consmsgpb.WholeMessage)}
+	err := proto.Unmarshal(buf, m.Msg)
+	if err != nil {
+		return NoiseMessage{}, err
+	}
+	return m, nil
+}
 
 // Broadcast msg to all peers
 func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
@@ -81,39 +76,43 @@ func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 
 	msg.From = tp.id
 	tp.msgc <- msg
+
 	for _, p := range tp.peers {
-		if p.writer != nil {
-			p.writer.msgc <- msg
+		if p != nil {
+			go tp.SendMessage(p.peerID, msg)
 		}
 	}
 }
-
-// Send sends the given message to msg.To
-// func (tp *Transport) Send(msg *ConsMessage, to IDType) {
-// 	p := tp.peers[to]
-// 	p.writer.msgc <- msg
-// 	// p.writer.encoder.Encode(*msg)
-// 	// p.writer.flusher.Flush()
-// }
 
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
 func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTransport,
 	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
 	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
+	// init tranport layer
 	tp := &HTTPTransport{id: id, peers: make(map[uint32]*peer), msgc: msgc, mu: sync.Mutex{}}
+
 	for i, p := range peers {
 		if index := uint32(i); index != id {
-			tp.peers[index] = &peer{peerID: index, addr: p}
-			tp.peers[index].writer = &streamWriter{msgc: make(chan *consmsgpb.WholeMessage, streamBufSize), peerID: index}
-			go tp.peers[index].writer.run(tp.peers, tp.id)
-			tp.peers[index].reader = &streamReader{msgc: tp.msgc, inc: make(chan []byte, streamBufSize)}
-			go tp.peers[index].reader.run()
+			tp.peers[index] = &peer{peerID: index, addr: p[7:]}
+		} else {
+			ip := strings.Split(p, ":")
+			addr := ip[1][2:]
+			port, _ := strconv.ParseUint(ip[2], 10, 64)
+			node, _ := noise.NewNode(noise.WithNodeBindHost(net.ParseIP(addr)),
+				noise.WithNodeBindPort(uint16(port)), noise.WithNodeMaxRecvMessageSize(32*1024*1024))
+			tp.node = node
 		}
 	}
+	tp.node.RegisterMessage(NoiseMessage{}, UnmarshalNoiseMessage)
+	tp.node.Handle(tp.Handler)
+	err := tp.node.Listen()
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("listening on %v\n", tp.node.Addr())
 
-	// tp.connect()
-
+	//init client server
 	reqc := make(chan []byte, streamBufSize)
 	repc := make(chan []byte, streamBufSize)
 
@@ -121,11 +120,10 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTr
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", http.NotFound)
-	mux.Handle(consensusPrefix, tp)
-	mux.Handle(consensusPrefix+"/", tp)
+	// mux.Handle(consensusPrefix, tp)
+	// mux.Handle(consensusPrefix+"/", tp)
 	mux.Handle(clientPrefix, rprocessor)
 	mux.Handle(clientPrefix+"/", rprocessor)
-
 	server := &http.Server{Addr: ":" + strconv.Itoa(port), Handler: mux}
 	server.SetKeepAlivesEnabled(true)
 
@@ -134,110 +132,37 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTr
 	return tp, msgc, reqc, repc
 }
 
-// func (tp *HTTPTransport) connect() {
-// 	for _, p := range tp.peers {
-// 		go dial(p, tp.id, tp.msgc)
-// 	}
-// }
-
-// func dial(p *peer, id uint32, msgc chan *consmsgpb.WholeMessage) {
-// 	for {
-// 		fmt.Println("1")
-// 		resp, err := http.Get(p.addr + consensusPrefix + "/" + strconv.FormatUint(uint64(id), 10))
-// 		if err != nil {
-// 			fmt.Println(err)
-// 			time.Sleep(1 * time.Second)
-// 			continue
-// 		}
-// 		content, err := ioutil.ReadAll(resp.Body)
-// 		if err != nil {
-// 			resp.Body.Close()
-// 			log.Fatalln(err)
-// 		}
-// 		var msg consmsgpb.WholeMessage
-// 		err = proto.Unmarshal(content, &msg)
-// 		if err != nil {
-// 			log.Fatalln(err)
-// 		}
-// 		fmt.Println(&msg)
-// 		resp.Body.Close()
-// 		msgc <- &msg
-// 	}
-// }
-
-func (sr *streamReader) run() {
+func (tp *HTTPTransport) SendMessage(id uint32, msg *consmsgpb.WholeMessage) {
+	// content, err := proto.Marshal(m)
+	m := NoiseMessage{Msg: msg}
+	err := tp.node.SendMessage(context.TODO(), tp.peers[id].addr, m)
 	for {
-		content := <-sr.inc
-		var msg consmsgpb.WholeMessage
-		err := proto.Unmarshal(content, &msg)
-		if err != nil {
-			log.Fatalln(err)
+		if err == nil {
+			return
+		} else {
+			fmt.Println("err", err.Error())
 		}
-		sr.msgc <- &msg
+		err = tp.node.SendMessage(context.TODO(), tp.peers[id].addr, m)
 	}
 }
 
-func (sw *streamWriter) run(peers map[uint32]*peer, id uint32) {
-	sw.client = &http.Client{
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				KeepAlive: 120 * time.Second,
-			}).DialContext,
-		},
-	}
-	for {
-		m := <-sw.msgc
-		content, err := proto.Marshal(m)
-		if err != nil {
-			log.Fatal("encode error:", err)
-		}
-		req, err := http.NewRequest(http.MethodPost, peers[sw.peerID].addr+consensusPrefix+"/"+strconv.FormatUint(uint64(id), 10), bytes.NewReader(content))
-		if err != nil {
-			log.Fatalln(err)
-		}
-		for {
-			_, err = sw.client.Do(req)
-			if err != nil {
-				log.Fatalln(err)
-				continue
-			}
-			break
-		}
-	}
-}
-
-func (tp *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// if r.Method != "GET" {
-	// 	w.Header().Set("Allow", "GET")
-	// 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-	// 	return
-	// }
-
-	// w.WriteHeader(http.StatusOK)
-	// w.(http.Flusher).Flush()
-
-	// fromStr := path.Base(r.URL.Path)
-	// fromID, _ := strconv.ParseUint(fromStr, 10, 64)
-	// p := tp.peers[uint32(fromID)]
-
-	// p.writer = &streamWriter{msgc: make(chan *consmsgpb.WholeMessage, streamBufSize), peerID: uint32(fromID)}
-
-	// p.writer.run()
-	defer r.Body.Close()
-	fromStr := path.Base(r.URL.Path)
-	fromID, _ := strconv.ParseUint(fromStr, 10, 64)
-	p := tp.peers[uint32(fromID)]
-	content, err := ioutil.ReadAll(r.Body)
+func (tp *HTTPTransport) Handler(ctx noise.HandlerContext) error {
+	obj, err := ctx.DecodeMessage()
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
-	p.reader.inc <- content
-	// var msg consmsgpb.WholeMessage
-	// err = proto.Unmarshal(content, &msg)
-	// if err != nil {
-	// 	log.Fatalln(err)
-	// }
-	// tp.msgc <- &msg
+	msg, ok := obj.(NoiseMessage)
+	if !ok {
+		log.Fatal(err)
+	}
+	tp.OnReceiveMessage(msg.Msg)
+	return nil
+}
+
+func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
+	// logger.Debugf("receive %v from %v of %v-%v", msg.Type, msg.From, msg.Timestamp, msg.Sender)
+
+	tp.msgc <- msg
 }
 
 // ClientMsgProcessor is responsible for listening and processing requests from clients
@@ -250,6 +175,12 @@ type ClientMsgProcessor struct {
 }
 
 func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// v, err := ioutil.ReadAll(r.Body)
+	// if err != nil {
+	// 	rprocessor.lg.Error("read client request error:", zap.Error(err))
+	// }
+
+	// key := r.RequestURI
 	defer r.Body.Close()
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
