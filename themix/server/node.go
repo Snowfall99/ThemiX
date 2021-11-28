@@ -20,6 +20,7 @@ import (
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
 	"go.themix.io/transport/http"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
@@ -37,18 +38,19 @@ func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id uint32, n ui
 
 	proposer := initProposer(lg, tp, id, reqc, pkPath)
 
-	state := initState(lg, tp, blsSig, pkPath, id, proposer, n, repc, batchsize)
+	stateChan := make(chan *consmsgpb.WholeMessage, 2*int(n))
+	_ = initState(lg, tp, blsSig, pkPath, id, proposer, n, repc, batchsize, stateChan)
 
 	for i := 0; i < runtime.NumCPU()-1; i++ {
 		go func() {
 			for {
 				msg := <-msgc
-				state.insertMsg(msg)
+				stateChan <- msg
 			}
 		}()
 	}
 	for {
 		msg := <-msgc
-		state.insertMsg(msg)
+		stateChan <- msg
 	}
 }

@@ -38,6 +38,8 @@ type asyncCommSubset struct {
 	proposer      *Proposer
 	reqc          chan *consmsgpb.WholeMessage
 	lock          sync.Mutex
+	msgc          chan *consmsgpb.WholeMessage
+	decideChan    chan uint32
 }
 
 func initACS(st *state,
@@ -49,79 +51,137 @@ func initACS(st *state,
 	seq uint64, n uint64,
 	reqc chan *consmsgpb.WholeMessage) *asyncCommSubset {
 	re := &asyncCommSubset{
-		st:        st,
-		lg:        lg,
-		proposer:  proposer,
-		n:         n,
-		sequence:  seq,
-		instances: make([]*instance, n),
-		reqc:      reqc,
-		lock:      sync.Mutex{},
+		st:         st,
+		lg:         lg,
+		proposer:   proposer,
+		n:          n,
+		sequence:   seq,
+		instances:  make([]*instance, n),
+		reqc:       reqc,
+		msgc:       make(chan *consmsgpb.WholeMessage, 2*int(n)),
+		decideChan: make(chan uint32, n),
+		lock:       sync.Mutex{},
 	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
-		re.instances[i] = initInstance(lg, tp, blsSig, pkPath, seq, n, re.thld)
+		re.instances[i] = initInstance(lg, tp, blsSig, pkPath, seq, n, re.thld, re.decideChan)
 	}
+	go re.insertMsg()
+	go re.decideDaemon()
 	return re
 }
 
-func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
-	isDecided, isFinished := acs.instances[msg.ConsMsg.Proposer].insertMsg(msg)
-	if isDecided {
-		acs.lock.Lock()
-		defer acs.lock.Unlock()
-
-		if !acs.instances[msg.ConsMsg.Proposer].decidedOne() && msg.ConsMsg.Proposer == acs.proposer.id {
-			fmt.Printf("ID %d decided zero at %d\n", msg.ConsMsg.Proposer, msg.ConsMsg.Sequence)
+func (acs *asyncCommSubset) decideDaemon() {
+	for {
+		proposer := <-acs.decideChan
+		if !acs.instances[proposer].decidedOne() && proposer == acs.proposer.id {
+			fmt.Println("ID %d, decide zero as %d\n", proposer, acs.sequence)
 		}
-
 		acs.numDecided++
 		if acs.numDecided == 1 {
 			acs.proposer.proceed(acs.sequence)
 		}
-
-		if acs.instances[msg.ConsMsg.Proposer].decidedOne() {
+		if acs.instances[proposer].decidedOne() {
 			acs.numDecidedOne++
 		}
-
 		// Just for test
 		// if acs.numDecidedOne == acs.thld {
 		// 	for i, inst := range acs.instances {
 		// 		inst.canVoteZero(info.IDType(i), acs.sequence)
 		// 	}
 		// }
-
 		if acs.numDecided == acs.n {
-			for _, inst := range acs.instances {
-				proposal := inst.getProposal()
-				if inst.decidedOne() && len(proposal.ConsMsg.Content) != 0 {
-					inst.lg.Info("executed",
-						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
-						zap.Int("seq", int(msg.ConsMsg.Sequence)),
-						zap.Int("content", int(proposal.ConsMsg.Content[0])))
-					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
-					acs.reqc <- proposal
-				} else if proposal.ConsMsg.Proposer == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
-					inst.lg.Info("repropose",
-						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
-						zap.Int("seq", int(proposal.ConsMsg.Sequence)),
-						zap.Int("content", int(proposal.ConsMsg.Content[0])))
-					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
-					acs.proposer.propose(proposal.ConsMsg.Content)
-				} else if inst.decidedOne() {
-					inst.lg.Info("empty",
-						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
-						zap.Int("seq", int(proposal.ConsMsg.Sequence)))
-				}
-			}
+			break
 		}
-	} else if isFinished {
-		// acs.lock.Lock()
-		// defer acs.lock.Unlock()
-
-		// acs.numFinished++
-		// if acs.numFinished == acs.n {
-		// 	acs.st.garbageCollect(acs.sequence)
-		// }
+	}
+	for _, inst := range acs.instances {
+		proposal := inst.getProposal()
+		if inst.decidedOne() && len(proposal.ConsMsg.Content) != 0 {
+			inst.lg.Info("executed",
+				zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+				zap.Int("seq", int(acs.sequence)),
+				zap.Int("content", int(proposal.ConsMsg.Content[0])))
+			// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
+			acs.reqc <- proposal
+		} else if proposal.ConsMsg.Proposer == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
+			inst.lg.Info("repropose",
+				zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+				zap.Int("seq", int(proposal.ConsMsg.Sequence)),
+				zap.Int("content", int(proposal.ConsMsg.Content[0])))
+			// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
+			acs.proposer.propose(proposal.ConsMsg.Content)
+		} else if inst.decidedOne() {
+			inst.lg.Info("empty",
+				zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+				zap.Int("seq", int(proposal.ConsMsg.Sequence)))
+		}
 	}
 }
+
+func (acs *asyncCommSubset) insertMsg() {
+	for {
+		msg := <-acs.msgc
+		acs.instances[msg.ConsMsg.Proposer].msgc <- msg
+	}
+}
+
+// func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
+// 	isDecided, isFinished := acs.instances[msg.ConsMsg.Proposer].insertMsg(msg)
+// 	if isDecided {
+// 		acs.lock.Lock()
+// 		defer acs.lock.Unlock()
+
+// 		if !acs.instances[msg.ConsMsg.Proposer].decidedOne() && msg.ConsMsg.Proposer == acs.proposer.id {
+// 			fmt.Printf("ID %d decided zero at %d\n", msg.ConsMsg.Proposer, msg.ConsMsg.Sequence)
+// 		}
+
+// 		acs.numDecided++
+// 		if acs.numDecided == 1 {
+// 			acs.proposer.proceed(acs.sequence)
+// 		}
+
+// 		if acs.instances[msg.ConsMsg.Proposer].decidedOne() {
+// 			acs.numDecidedOne++
+// 		}
+
+// 		// Just for test
+// 		// if acs.numDecidedOne == acs.thld {
+// 		// 	for i, inst := range acs.instances {
+// 		// 		inst.canVoteZero(info.IDType(i), acs.sequence)
+// 		// 	}
+// 		// }
+
+// 		if acs.numDecided == acs.n {
+// 			for _, inst := range acs.instances {
+// 				proposal := inst.getProposal()
+// 				if inst.decidedOne() && len(proposal.ConsMsg.Content) != 0 {
+// 					inst.lg.Info("executed",
+// 						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+// 						zap.Int("seq", int(msg.ConsMsg.Sequence)),
+// 						zap.Int("content", int(proposal.ConsMsg.Content[0])))
+// 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
+// 					acs.reqc <- proposal
+// 				} else if proposal.ConsMsg.Proposer == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
+// 					inst.lg.Info("repropose",
+// 						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+// 						zap.Int("seq", int(proposal.ConsMsg.Sequence)),
+// 						zap.Int("content", int(proposal.ConsMsg.Content[0])))
+// 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
+// 					acs.proposer.propose(proposal.ConsMsg.Content)
+// 				} else if inst.decidedOne() {
+// 					inst.lg.Info("empty",
+// 						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+// 						zap.Int("seq", int(proposal.ConsMsg.Sequence)))
+// 				}
+// 			}
+// 		}
+// 	} else if isFinished {
+// 		// acs.lock.Lock()
+// 		// defer acs.lock.Unlock()
+
+// 		// acs.numFinished++
+// 		// if acs.numFinished == acs.n {
+// 		// 	acs.st.garbageCollect(acs.sequence)
+// 		// }
+// 	}
+// }

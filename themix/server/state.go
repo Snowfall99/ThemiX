@@ -36,6 +36,7 @@ type state struct {
 	lock      sync.RWMutex
 	reqc      chan *consmsgpb.WholeMessage
 	repc      chan []byte
+	stateChan chan *consmsgpb.WholeMessage
 }
 
 func initState(lg *zap.Logger,
@@ -45,7 +46,8 @@ func initState(lg *zap.Logger,
 	id uint32,
 	proposer *Proposer,
 	n uint64, repc chan []byte,
-	batchsize int) *state {
+	batchsize int,
+	stateChan chan *consmsgpb.WholeMessage) chan *consmsgpb.WholeMessage {
 	st := &state{
 		lg:        lg,
 		tp:        tp,
@@ -59,45 +61,60 @@ func initState(lg *zap.Logger,
 		lock:      sync.RWMutex{},
 		reqc:      make(chan *consmsgpb.WholeMessage, 2*int(n)*batchsize),
 		repc:      repc,
+		stateChan: stateChan,
 	}
 	go st.run()
-	return st
+	go st.insertMsg()
+	return st.stateChan
 }
 
-func (st *state) insertMsg(msg *consmsgpb.WholeMessage) {
-	st.lock.RLock()
-
-	if exec, ok := st.execs[msg.ConsMsg.Sequence]; ok {
-		st.lock.RUnlock()
-		exec.insertMsg(msg)
-	} else {
-		if st.collected <= msg.ConsMsg.Sequence {
-			st.lock.RUnlock()
-
+func (st *state) insertMsg() {
+	for {
+		msg := <-st.stateChan
+		if exec, ok := st.execs[msg.ConsMsg.Sequence]; ok {
+			exec.msgc <- msg
+		} else {
 			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
-
-			st.lock.Lock()
-			if e, ok := st.execs[msg.ConsMsg.Sequence]; ok {
-				exec = e
-			} else {
-				st.execs[msg.ConsMsg.Sequence] = exec
-			}
-			st.lock.Unlock()
-
-			exec.insertMsg(msg)
+			st.execs[msg.ConsMsg.Sequence] = exec
+			exec.msgc <- msg
 		}
 	}
 }
 
-func (st *state) garbageCollect(seq uint64) {
+// func (st *state) insertMsg(msg *consmsgpb.WholeMessage) {
+// 	// st.lock.RLock()
 
-	st.lock.Lock()
-	defer st.lock.Unlock()
+// 	if exec, ok := st.execs[msg.ConsMsg.Sequence]; ok {
+// 		// st.lock.RUnlock()
+// 		exec.insertMsg(msg)
+// 	} else {
+// 		if st.collected <= msg.ConsMsg.Sequence {
+// 			// st.lock.RUnlock()
 
-	delete(st.execs, seq)
-	for _, b := st.execs[st.collected]; !b; st.collected++ {
-	}
-}
+// 			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
+
+// 			// st.lock.Lock()
+// 			if e, ok := st.execs[msg.ConsMsg.Sequence]; ok {
+// 				exec = e
+// 			} else {
+// 				st.execs[msg.ConsMsg.Sequence] = exec
+// 			}
+// 			// st.lock.Unlock()
+
+// 			exec.insertMsg(msg)
+// 		}
+// 	}
+// }
+
+// func (st *state) garbageCollect(seq uint64) {
+
+// 	st.lock.Lock()
+// 	defer st.lock.Unlock()
+
+// 	delete(st.execs, seq)
+// 	for _, b := st.execs[st.collected]; !b; st.collected++ {
+// 	}
+// }
 
 // execute requests by a single thread
 func (st *state) run() {
