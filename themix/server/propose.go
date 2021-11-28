@@ -71,7 +71,7 @@ func (proposer *Proposer) propose(request []byte) {
 			Content:  request,
 		},
 		From: proposer.id}
-	GetSign(msg, proposer.priv)
+	Sign(msg, proposer.priv)
 
 	if len(request) > 0 {
 		proposer.lg.Info("propose",

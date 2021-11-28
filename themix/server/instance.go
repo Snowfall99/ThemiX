@@ -168,12 +168,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	 * start timer tmrR <- 2*delta
 	 */
 	case consmsgpb.MessageType_VAL:
-		if inst.proposal != nil {
-			verify := VerifySign(msg, inst.priv)
-			if !verify {
-				return false, false
-			}
-		}
 		inst.proposal = msg
 		hash, _ := sha256.ComputeHash(msg.ConsMsg.Content)
 		inst.hash = hash
@@ -188,7 +182,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Sequence: msg.ConsMsg.Sequence,
 					Content:  hash,
 				}}
-			GetSign(m, inst.priv)
+			Sign(m, inst.priv)
 			inst.tp.Broadcast(m)
 			m = &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
@@ -211,10 +205,10 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	 * broadcast READY(v)i
 	 */
 	case consmsgpb.MessageType_ECHO:
-		verify := VerifySign(msg, inst.priv)
-		if !verify {
-			return false, false
-		}
+		// verify := Verify(msg, inst.priv)
+		// if !verify {
+		// 	return false, false
+		// }
 		if inst.echoSigns.Collections[msg.From] != nil {
 			return false, false
 		}
@@ -248,16 +242,16 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Content:  []byte{1}, // vote 1
 					},
 				}
-				GetSign(m, inst.priv)
+				Sign(m, inst.priv)
 				inst.tp.Broadcast(m)
 			}
 		}
 		return inst.isFastDecided()
 	case consmsgpb.MessageType_BVAL:
-		verify := VerifySign(msg, inst.priv)
-		if !verify {
-			return false, false
-		}
+		// verify := Verify(msg, inst.priv)
+		// if !verify {
+		// 	return false, false
+		// }
 		var b bool
 		switch msg.ConsMsg.Content[0] {
 		case 0:
@@ -294,7 +288,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Content:  []byte{0}, // aux 0
 					},
 				}
-				GetSign(m, inst.priv)
+				Sign(m, inst.priv)
 				inst.tp.Broadcast(m)
 			}
 			b = true
@@ -326,7 +320,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Content:  []byte{1}, // aux 1
 					},
 				}
-				GetSign(m, inst.priv)
+				Sign(m, inst.priv)
 				inst.tp.Broadcast(m)
 			}
 		}
@@ -334,10 +328,10 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			return inst.isFastDecided()
 		}
 	case consmsgpb.MessageType_AUX:
-		verify := VerifySign(msg, inst.priv)
-		if !verify {
-			return false, false
-		}
+		// verify := Verify(msg, inst.priv)
+		// if !verify {
+		// 	return false, false
+		// }
 		switch msg.ConsMsg.Content[0] {
 		case 0:
 			inst.numAuxZero[msg.ConsMsg.Round]++
@@ -448,7 +442,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				Content:  []byte{1}, // vote 1
 			},
 		}
-		GetSign(m, inst.priv)
+		Sign(m, inst.priv)
 		inst.tp.Broadcast(m)
 		inst.isFastDecided()
 	case consmsgpb.MessageType_BVAL_ZERO_COLLECTION:
@@ -488,7 +482,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Content:  []byte{0}, // aux 0
 				},
 			}
-			GetSign(m, inst.priv)
+			Sign(m, inst.priv)
 			inst.tp.Broadcast(m)
 		}
 		inst.isFastDecided()
@@ -529,7 +523,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Content:  []byte{1}, // aux 1
 				},
 			}
-			GetSign(m, inst.priv)
+			Sign(m, inst.priv)
 			inst.tp.Broadcast(m)
 		}
 		inst.isFastDecided()
@@ -660,7 +654,7 @@ func deserialCollection(data []byte) consmsgpb.Collections {
 	return collection
 }
 
-func GetSign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {
+func Sign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {
 	content, _ := proto.Marshal(msg.ConsMsg)
 	hash, err := sha256.ComputeHash(content)
 	if err != nil {
@@ -673,18 +667,18 @@ func GetSign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {
 	msg.Signature = sig
 }
 
-func VerifySign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) bool {
-	content, _ := proto.Marshal(msg.ConsMsg)
-	hash, err := sha256.ComputeHash(content)
-	if err != nil {
-		panic("sha256 computeHash failed")
-	}
-	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, msg.Signature, hash)
-	if err != nil {
-		fmt.Println("Failed to verify a consmsgpb: ", err)
-	}
-	return b
-}
+// func Verify(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) bool {
+// 	content, _ := proto.Marshal(msg.ConsMsg)
+// 	hash, err := sha256.ComputeHash(content)
+// 	if err != nil {
+// 		panic("sha256 computeHash failed")
+// 	}
+// 	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, msg.Signature, hash)
+// 	if err != nil {
+// 		fmt.Println("Failed to verify a consmsgpb: ", err)
+// 	}
+// 	return b
+// }
 
 func VerifyCollection(content, sign []byte, priv *ecdsa.PrivateKey) bool {
 	hash, err := sha256.ComputeHash(content)

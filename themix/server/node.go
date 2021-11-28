@@ -19,6 +19,7 @@ import (
 
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
+	"go.themix.io/transport/http"
 	"go.uber.org/zap"
 )
 
@@ -30,9 +31,9 @@ type Node struct {
 }
 
 // InitNode initiate a node for processing messages
-func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id uint32, n uint64, port int, addresses []string, batchsize int) {
+func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id uint32, n uint64, port int, peers []http.Peer, batchsize int) {
 
-	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, addresses)
+	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, peers)
 
 	proposer := initProposer(lg, tp, id, reqc, pkPath)
 

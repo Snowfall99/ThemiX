@@ -21,7 +21,9 @@ import (
 	"strings"
 
 	"go.themix.io/crypto/bls"
+	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/themix/server"
+	"go.themix.io/transport/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -71,7 +73,7 @@ func main() {
 	id := flag.Uint64("id", 0, "process ID")
 	port := flag.Int("port", 11200, "port for themix server")
 	keys := flag.String("keys", "keys", "the folder sotring keys")
-	pk := flag.String("pk", "pk", "the folder storing pk")
+	pkPath := flag.String("pk", "pk", "the folder storing pk")
 	cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
 	batchsize := flag.Int("batch", 1, "the max batchsize")
 	// coordinator := flag.String("coordinator", "http://127.0.0.1:11300", "coordinator address")
@@ -141,7 +143,18 @@ func main() {
 	// }
 	// defer conn.Close()
 
-	server.InitNode(lg, bls, *pk, uint32(*id), uint64(len(addrs)), *port, addrs, *batchsize)
+	pk, _ := myecdsa.LoadKey(*pkPath)
+	var peers []http.Peer
+	for i := 0; i < len(addrs); i++ {
+		peer := http.Peer{
+			PeerID:    uint32(i),
+			PublicKey: pk,
+			Addr:      addrs[i],
+		}
+		peers = append(peers, peer)
+	}
+
+	server.InitNode(lg, bls, *pkPath, uint32(*id), uint64(len(addrs)), *port, peers, *batchsize)
 
 	// time.Sleep(5 * time.Second)
 

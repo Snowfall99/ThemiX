@@ -26,7 +26,7 @@ type Transport interface {
 
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
-func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (Transport,
+func InitTransport(lg *zap.Logger, id uint32, port int, peers []http.Peer) (Transport,
 	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
 	return http.InitTransport(lg, id, port, peers)
 }

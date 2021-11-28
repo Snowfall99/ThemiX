@@ -16,6 +16,7 @@ package http
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -23,9 +24,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/perlin-network/noise"
+	myecdsa "go.themix.io/crypto/ecdsa"
+	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -36,18 +38,19 @@ var (
 	streamBufSize = 40960
 )
 
-type peer struct {
-	peerID uint32
-	addr   string
+type Peer struct {
+	PeerID    uint32
+	Addr      string
+	PublicKey *ecdsa.PrivateKey
 }
 
 // HTTPTransport is responsible for message exchange among nodes
 type HTTPTransport struct {
 	id    uint32
 	node  *noise.Node
-	peers map[uint32]*peer
+	Peers map[uint32]*Peer
 	msgc  chan *consmsgpb.WholeMessage
-	mu    sync.Mutex
+	// mu    sync.Mutex
 }
 
 type NoiseMessage struct {
@@ -71,32 +74,32 @@ func UnmarshalNoiseMessage(buf []byte) (NoiseMessage, error) {
 // Broadcast msg to all peers
 func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 
-	tp.mu.Lock()
-	defer tp.mu.Unlock()
+	// tp.mu.Lock()
+	// defer tp.mu.Unlock()
 
 	msg.From = tp.id
 	tp.msgc <- msg
 
-	for _, p := range tp.peers {
+	for _, p := range tp.Peers {
 		if p != nil {
-			go tp.SendMessage(p.peerID, msg)
+			go tp.SendMessage(p.PeerID, msg)
 		}
 	}
 }
 
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
-func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTransport,
+func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTransport,
 	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
 	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
 	// init tranport layer
-	tp := &HTTPTransport{id: id, peers: make(map[uint32]*peer), msgc: msgc, mu: sync.Mutex{}}
+	tp := &HTTPTransport{id: id, Peers: make(map[uint32]*Peer), msgc: msgc}
 
 	for i, p := range peers {
 		if index := uint32(i); index != id {
-			tp.peers[index] = &peer{peerID: index, addr: p[7:]}
+			tp.Peers[index] = &Peer{PeerID: index, Addr: p.Addr[7:], PublicKey: p.PublicKey}
 		} else {
-			ip := strings.Split(p, ":")
+			ip := strings.Split(p.Addr, ":")
 			addr := ip[1][2:]
 			port, _ := strconv.ParseUint(ip[2], 10, 64)
 			node, _ := noise.NewNode(noise.WithNodeBindHost(net.ParseIP(addr)),
@@ -135,14 +138,14 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTr
 func (tp *HTTPTransport) SendMessage(id uint32, msg *consmsgpb.WholeMessage) {
 	// content, err := proto.Marshal(m)
 	m := NoiseMessage{Msg: msg}
-	err := tp.node.SendMessage(context.TODO(), tp.peers[id].addr, m)
+	err := tp.node.SendMessage(context.TODO(), tp.Peers[id].Addr, m)
 	for {
 		if err == nil {
 			return
 		} else {
 			fmt.Println("err", err.Error())
 		}
-		err = tp.node.SendMessage(context.TODO(), tp.peers[id].addr, m)
+		err = tp.node.SendMessage(context.TODO(), tp.Peers[id].Addr, m)
 	}
 }
 
@@ -155,14 +158,32 @@ func (tp *HTTPTransport) Handler(ctx noise.HandlerContext) error {
 	if !ok {
 		log.Fatal(err)
 	}
-	tp.OnReceiveMessage(msg.Msg)
+	go tp.OnReceiveMessage(msg.Msg)
 	return nil
 }
 
 func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
-	// logger.Debugf("receive %v from %v of %v-%v", msg.Type, msg.From, msg.Timestamp, msg.Sender)
-
+	if msg.ConsMsg.Type == consmsgpb.MessageType_VAL || msg.ConsMsg.Type == consmsgpb.MessageType_ECHO ||
+		msg.ConsMsg.Type == consmsgpb.MessageType_BVAL || msg.ConsMsg.Type == consmsgpb.MessageType_AUX {
+		if Verify(msg, tp.Peers[msg.From].PublicKey) {
+			tp.msgc <- msg
+		}
+		return
+	}
 	tp.msgc <- msg
+}
+
+func Verify(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) bool {
+	content, _ := proto.Marshal(msg.ConsMsg)
+	hash, err := sha256.ComputeHash(content)
+	if err != nil {
+		panic("sha256 computeHash failed")
+	}
+	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, msg.Signature, hash)
+	if err != nil {
+		fmt.Println("Failed to verify a consmsgpb: ", err)
+	}
+	return b
 }
 
 // ClientMsgProcessor is responsible for listening and processing requests from clients
