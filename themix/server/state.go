@@ -37,6 +37,7 @@ type state struct {
 	reqc      chan *consmsgpb.WholeMessage
 	repc      chan []byte
 	stateChan chan *consmsgpb.WholeMessage
+	colc      chan *consmsgpb.WholeMessage
 }
 
 func initState(lg *zap.Logger,
@@ -47,7 +48,8 @@ func initState(lg *zap.Logger,
 	proposer *Proposer,
 	n uint64, repc chan []byte,
 	batchsize int,
-	stateChan chan *consmsgpb.WholeMessage) chan *consmsgpb.WholeMessage {
+	stateChan chan *consmsgpb.WholeMessage,
+	colc chan *consmsgpb.WholeMessage) *state {
 	st := &state{
 		lg:        lg,
 		tp:        tp,
@@ -62,10 +64,12 @@ func initState(lg *zap.Logger,
 		reqc:      make(chan *consmsgpb.WholeMessage, 2*int(n)*batchsize),
 		repc:      repc,
 		stateChan: stateChan,
+		colc:      colc,
 	}
 	go st.run()
 	go st.insertMsg()
-	return st.stateChan
+	go st.insertCol()
+	return st
 }
 
 func (st *state) insertMsg() {
@@ -77,6 +81,19 @@ func (st *state) insertMsg() {
 			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
 			st.execs[msg.ConsMsg.Sequence] = exec
 			exec.msgc <- msg
+		}
+	}
+}
+
+func (st *state) insertCol() {
+	for {
+		msg := <-st.colc
+		if exec, ok := st.execs[msg.ConsMsg.Sequence]; ok {
+			exec.colc <- msg
+		} else {
+			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
+			st.execs[msg.ConsMsg.Sequence] = exec
+			exec.colc <- msg
 		}
 	}
 }

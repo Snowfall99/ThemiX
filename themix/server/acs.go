@@ -39,6 +39,7 @@ type asyncCommSubset struct {
 	reqc          chan *consmsgpb.WholeMessage
 	lock          sync.Mutex
 	msgc          chan *consmsgpb.WholeMessage
+	colc          chan *consmsgpb.WholeMessage
 	decideChan    chan uint32
 }
 
@@ -58,7 +59,8 @@ func initACS(st *state,
 		sequence:   seq,
 		instances:  make([]*instance, n),
 		reqc:       reqc,
-		msgc:       make(chan *consmsgpb.WholeMessage, 2*int(n)),
+		msgc:       make(chan *consmsgpb.WholeMessage, n*n),
+		colc:       make(chan *consmsgpb.WholeMessage, n*n),
 		decideChan: make(chan uint32, n),
 		lock:       sync.Mutex{},
 	}
@@ -67,6 +69,7 @@ func initACS(st *state,
 		re.instances[i] = initInstance(lg, tp, blsSig, pkPath, seq, n, re.thld, re.decideChan)
 	}
 	go re.insertMsg()
+	go re.insertCol()
 	go re.decideDaemon()
 	return re
 }
@@ -122,6 +125,13 @@ func (acs *asyncCommSubset) insertMsg() {
 	for {
 		msg := <-acs.msgc
 		acs.instances[msg.ConsMsg.Proposer].msgc <- msg
+	}
+}
+
+func (acs *asyncCommSubset) insertCol() {
+	for {
+		msg := <-acs.colc
+		acs.instances[msg.ConsMsg.Proposer].colc <- msg
 	}
 }
 

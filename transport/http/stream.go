@@ -50,6 +50,7 @@ type HTTPTransport struct {
 	node  *noise.Node
 	Peers map[uint32]*Peer
 	msgc  chan *consmsgpb.WholeMessage
+	colc  chan *consmsgpb.WholeMessage
 	// mu    sync.Mutex
 }
 
@@ -74,11 +75,14 @@ func UnmarshalNoiseMessage(buf []byte) (NoiseMessage, error) {
 // Broadcast msg to all peers
 func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 
-	// tp.mu.Lock()
-	// defer tp.mu.Unlock()
-
 	msg.From = tp.id
-	tp.msgc <- msg
+	if msg.ConsMsg.Type == consmsgpb.MessageType_BVAL || msg.ConsMsg.Type == consmsgpb.MessageType_VAL ||
+		msg.ConsMsg.Type == consmsgpb.MessageType_ECHO || msg.ConsMsg.Type == consmsgpb.MessageType_AUX ||
+		msg.ConsMsg.Type == consmsgpb.MessageType_SKIP || msg.ConsMsg.Type == consmsgpb.MessageType_VAL_SIGN {
+		tp.msgc <- msg
+	} else {
+		tp.colc <- msg
+	}
 
 	for _, p := range tp.Peers {
 		if p != nil {
@@ -90,10 +94,11 @@ func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
 func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTransport,
-	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
+	chan *consmsgpb.WholeMessage, chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
 	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
+	colc := make(chan *consmsgpb.WholeMessage, streamBufSize)
 	// init tranport layer
-	tp := &HTTPTransport{id: id, Peers: make(map[uint32]*Peer), msgc: msgc}
+	tp := &HTTPTransport{id: id, Peers: make(map[uint32]*Peer), msgc: msgc, colc: colc}
 
 	for i, p := range peers {
 		if index := uint32(i); index != id {
@@ -132,7 +137,7 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTran
 
 	go server.ListenAndServe()
 
-	return tp, msgc, reqc, repc
+	return tp, msgc, colc, reqc, repc
 }
 
 func (tp *HTTPTransport) SendMessage(id uint32, msg *consmsgpb.WholeMessage) {
@@ -170,7 +175,11 @@ func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
 		}
 		return
 	}
-	tp.msgc <- msg
+	if msg.ConsMsg.Type == consmsgpb.MessageType_SKIP || msg.ConsMsg.Type == consmsgpb.MessageType_VAL_SIGN {
+		tp.msgc <- msg
+		return
+	}
+	tp.colc <- msg
 }
 
 func Verify(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) bool {

@@ -39,6 +39,7 @@ type instance struct {
 	tp            transport.Transport
 	blsSig        *bls.BlsSig
 	msgc          chan *consmsgpb.WholeMessage
+	colc          chan *consmsgpb.WholeMessage
 	decideChan    chan uint32
 	fastRBC       bool
 	hasEcho       bool
@@ -119,6 +120,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk
 		numCoin:       make([]uint64, maxround),
 		lock:          sync.Mutex{},
 		msgc:          make(chan *consmsgpb.WholeMessage, n*n),
+		colc:          make(chan *consmsgpb.WholeMessage, n*n),
 		decideChan:    decideChan}
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
 	inst.priv, _ = myecdsa.LoadKey(pkPath)
@@ -131,6 +133,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk
 		inst.canSkipCoin[i] = true
 	}
 	go inst.insertMsg()
+	go inst.insertCol()
 	return inst
 }
 
@@ -414,6 +417,16 @@ func (inst *instance) insertMsg() {
 				go inst.isFastDecided()
 			}
 			inst.isFastDecided()
+		default:
+			continue
+		}
+	}
+}
+
+func (inst *instance) insertCol() {
+	for {
+		msg := <-inst.colc
+		switch msg.ConsMsg.Type {
 		case consmsgpb.MessageType_ECHO_COLLECTION:
 			if inst.fastRBC || inst.hasVotedZero || inst.hasVotedOne || inst.hash == nil {
 				continue
@@ -617,6 +630,7 @@ func (inst *instance) insertMsg() {
 		default:
 			continue
 		}
+
 	}
 }
 

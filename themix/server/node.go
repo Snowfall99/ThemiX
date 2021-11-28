@@ -34,23 +34,25 @@ type Node struct {
 // InitNode initiate a node for processing messages
 func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id uint32, n uint64, port int, peers []http.Peer, batchsize int) {
 
-	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, peers)
+	tp, msgc, colc, reqc, repc := transport.InitTransport(lg, id, port, peers)
 
 	proposer := initProposer(lg, tp, id, reqc, pkPath)
 
-	stateChan := make(chan *consmsgpb.WholeMessage, 2*int(n))
-	_ = initState(lg, tp, blsSig, pkPath, id, proposer, n, repc, batchsize, stateChan)
+	stateMsgChan := make(chan *consmsgpb.WholeMessage, n*n)
+	stateColChan := make(chan *consmsgpb.WholeMessage, n*n)
+
+	_ = initState(lg, tp, blsSig, pkPath, id, proposer, n, repc, batchsize, stateMsgChan, stateColChan)
 
 	for i := 0; i < runtime.NumCPU()-1; i++ {
 		go func() {
 			for {
 				msg := <-msgc
-				stateChan <- msg
+				stateMsgChan <- msg
 			}
 		}()
 	}
 	for {
-		msg := <-msgc
-		stateChan <- msg
+		msg := <-colc
+		stateMsgChan <- msg
 	}
 }
