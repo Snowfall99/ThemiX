@@ -47,6 +47,8 @@ type instance struct {
 	hasVotedOne   bool
 	hasSentAux    bool
 	hasSentCoin   bool
+	zeroBvalCol   bool
+	oneBvalCol    bool
 	zeroEndorsed  bool
 	oneEndorsed   bool
 	fastAuxZero   bool
@@ -146,7 +148,7 @@ func (inst *instance) insertMsg() {
 		msg := <-inst.msgc
 		// Just for test
 		if msg.ConsMsg.Round > 0 {
-			break
+			continue
 		}
 
 		if len(msg.ConsMsg.Content) > 0 {
@@ -271,8 +273,8 @@ func (inst *instance) insertMsg() {
 				inst.numBvalOne[msg.ConsMsg.Round]++
 				inst.bvalOneSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
 			}
-			if inst.round == msg.ConsMsg.Round && !inst.hasVotedZero && inst.numBvalZero[inst.round] > inst.f {
-				inst.hasVotedZero = true
+			if inst.round == msg.ConsMsg.Round && !inst.zeroBvalCol && inst.numBvalZero[inst.round] > inst.f {
+				inst.zeroBvalCol = true
 				collection := serialCollection(inst.bvalZeroSigns[msg.ConsMsg.Round])
 				m := &consmsgpb.WholeMessage{
 					ConsMsg: &consmsgpb.ConsMessage{
@@ -303,8 +305,8 @@ func (inst *instance) insertMsg() {
 				}
 				b = true
 			}
-			if inst.round == msg.ConsMsg.Round && !inst.hasVotedOne && inst.numBvalOne[inst.round] > inst.f {
-				inst.hasVotedOne = true
+			if inst.round == msg.ConsMsg.Round && !inst.oneBvalCol && inst.numBvalOne[inst.round] > inst.f {
+				inst.oneBvalCol = true
 				collection := serialCollection(inst.bvalOneSigns[msg.ConsMsg.Round])
 				m := &consmsgpb.WholeMessage{
 					ConsMsg: &consmsgpb.ConsMessage{
@@ -411,10 +413,10 @@ func (inst *instance) insertMsg() {
 				inst.numOneSkip++
 			}
 			if msg.ConsMsg.Content[0] == 0 && inst.proposal != nil && !inst.isDecided && inst.numZeroSkip >= inst.fastgroup {
-				go inst.isFastDecided()
+				inst.isFastDecided()
 			}
 			if msg.ConsMsg.Content[0] == 1 && inst.proposal != nil && !inst.isDecided && inst.numOneSkip >= inst.fastgroup {
-				go inst.isFastDecided()
+				inst.isFastDecided()
 			}
 			inst.isFastDecided()
 		default:
@@ -630,7 +632,6 @@ func (inst *instance) insertCol() {
 		default:
 			continue
 		}
-
 	}
 }
 
