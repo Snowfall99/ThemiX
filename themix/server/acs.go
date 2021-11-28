@@ -75,7 +75,7 @@ func (acs *asyncCommSubset) decideDaemon() {
 	for {
 		proposer := <-acs.decideChan
 		if !acs.instances[proposer].decidedOne() && proposer == acs.proposer.id {
-			fmt.Println("ID %d, decide zero as %d\n", proposer, acs.sequence)
+			fmt.Printf("ID %d, decide zero as %d\n", proposer, acs.sequence)
 		}
 		acs.numDecided++
 		if acs.numDecided == 1 {

@@ -118,7 +118,7 @@ func initInstance(lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk
 		numCon:        make([]uint64, maxround),
 		numCoin:       make([]uint64, maxround),
 		lock:          sync.Mutex{},
-		msgc:          make(chan *consmsgpb.WholeMessage, n),
+		msgc:          make(chan *consmsgpb.WholeMessage, n*n),
 		decideChan:    decideChan}
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
 	inst.priv, _ = myecdsa.LoadKey(pkPath)
@@ -201,7 +201,7 @@ func (inst *instance) insertMsg() {
 				}
 				inst.tp.Broadcast(m)
 			}
-			go inst.isFastDecided()
+			inst.isFastDecided()
 
 		case consmsgpb.MessageType_VAL_SIGN:
 			inst.valMsgs[msg.From] = msg
@@ -253,7 +253,7 @@ func (inst *instance) insertMsg() {
 					inst.tp.Broadcast(m)
 				}
 			}
-			go inst.isFastDecided()
+			inst.isFastDecided()
 		case consmsgpb.MessageType_BVAL:
 			// verify := Verify(msg, inst.priv)
 			// if !verify {
@@ -332,7 +332,7 @@ func (inst *instance) insertMsg() {
 				}
 			}
 			if b {
-				go inst.isFastDecided()
+				inst.isFastDecided()
 			}
 		case consmsgpb.MessageType_AUX:
 			// verify := Verify(msg, inst.priv)
@@ -371,7 +371,7 @@ func (inst *instance) insertMsg() {
 						},
 					})
 				}
-				go inst.isFastDecided()
+				inst.isFastDecided()
 			}
 			if inst.round == msg.ConsMsg.Round && msg.ConsMsg.Content[0] == 1 && !inst.fastAuxOne && inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup {
 				inst.fastAuxOne = true
@@ -397,7 +397,7 @@ func (inst *instance) insertMsg() {
 						},
 					})
 				}
-				go inst.isFastDecided()
+				inst.isFastDecided()
 			}
 			// return inst.isFastDecided()
 		case consmsgpb.MessageType_SKIP:
@@ -413,7 +413,7 @@ func (inst *instance) insertMsg() {
 			if msg.ConsMsg.Content[0] == 1 && inst.proposal != nil && !inst.isDecided && inst.numOneSkip >= inst.fastgroup {
 				go inst.isFastDecided()
 			}
-			go inst.isFastDecided()
+			inst.isFastDecided()
 		case consmsgpb.MessageType_ECHO_COLLECTION:
 			if inst.fastRBC || inst.hasVotedZero || inst.hasVotedOne || inst.hash == nil {
 				continue
@@ -536,7 +536,7 @@ func (inst *instance) insertMsg() {
 				Sign(m, inst.priv)
 				inst.tp.Broadcast(m)
 			}
-			go inst.isFastDecided()
+			inst.isFastDecided()
 		case consmsgpb.MessageType_AUX_ZERO_COLLECTION:
 			if inst.fastAuxZero || inst.fastAuxOne || inst.round != msg.ConsMsg.Round {
 				continue
@@ -575,7 +575,7 @@ func (inst *instance) insertMsg() {
 					},
 				})
 			}
-			go inst.isFastDecided()
+			inst.isFastDecided()
 		case consmsgpb.MessageType_AUX_ONE_COLLECTION:
 			if inst.fastAuxZero || inst.fastAuxOne || inst.round != msg.ConsMsg.Round {
 				continue
