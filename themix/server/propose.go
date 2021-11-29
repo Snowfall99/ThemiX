@@ -61,8 +61,6 @@ func (proposer *Proposer) run() {
 
 // Propose broadcast a propose consmsgpb with the given request and the current sequence number
 func (proposer *Proposer) propose(request []byte) {
-	// proposer.lock.Lock()
-
 	msg := &consmsgpb.WholeMessage{
 		ConsMsg: &consmsgpb.ConsMessage{
 			Type:     consmsgpb.MessageType_VAL,
@@ -71,19 +69,15 @@ func (proposer *Proposer) propose(request []byte) {
 			Content:  request,
 		},
 		From: proposer.id}
-	Sign(msg, proposer.priv)
 
 	if len(request) > 0 {
 		proposer.lg.Info("propose",
 			zap.Int("proposer", int(msg.ConsMsg.Proposer)),
 			zap.Int("seq", int(msg.ConsMsg.Sequence)),
-			zap.Int("content", int(msg.ConsMsg.Content[0])),
-			zap.Int("signature", int(msg.Signature[0])))
+			zap.Int("content", int(msg.ConsMsg.Content[0])))
+		// zap.Int("signature", int(msg.Signature[0])))
 	}
 
 	proposer.seq++
-
-	// proposer.lock.Unlock()
-
 	proposer.tp.Broadcast(msg)
 }

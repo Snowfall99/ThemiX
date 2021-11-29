@@ -46,11 +46,12 @@ type Peer struct {
 
 // HTTPTransport is responsible for message exchange among nodes
 type HTTPTransport struct {
-	id    uint32
-	node  *noise.Node
-	Peers map[uint32]*Peer
-	msgc  chan *consmsgpb.WholeMessage
-	// mu    sync.Mutex
+	id         uint32
+	node       *noise.Node
+	Peers      map[uint32]*Peer
+	PrivateKey ecdsa.PrivateKey
+	msgc       chan *consmsgpb.WholeMessage
+	proposal   [][]byte
 }
 
 type NoiseMessage struct {
@@ -73,10 +74,6 @@ func UnmarshalNoiseMessage(buf []byte) (NoiseMessage, error) {
 
 // Broadcast msg to all peers
 func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
-
-	// tp.mu.Lock()
-	// defer tp.mu.Unlock()
-
 	msg.From = tp.id
 	tp.msgc <- msg
 
@@ -92,13 +89,13 @@ func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTransport,
 	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
 	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
-	// init tranport layer
 	tp := &HTTPTransport{id: id, Peers: make(map[uint32]*Peer), msgc: msgc}
-
+	tp.proposal = make([][]byte, len(peers))
 	for i, p := range peers {
 		if index := uint32(i); index != id {
 			tp.Peers[index] = &Peer{PeerID: index, Addr: p.Addr[7:], PublicKey: p.PublicKey}
 		} else {
+			tp.PrivateKey = *p.PublicKey
 			ip := strings.Split(p.Addr, ":")
 			addr := ip[1][2:]
 			port, _ := strconv.ParseUint(ip[2], 10, 64)
@@ -114,13 +111,9 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTran
 		panic(err)
 	}
 	log.Printf("listening on %v\n", tp.node.Addr())
-
-	//init client server
 	reqc := make(chan []byte, streamBufSize)
 	repc := make(chan []byte, streamBufSize)
-
 	rprocessor := &ClientMsgProcessor{lg: lg, id: id, reqc: reqc, repc: repc}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", http.NotFound)
 	// mux.Handle(consensusPrefix, tp)
@@ -136,7 +129,7 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTran
 }
 
 func (tp *HTTPTransport) SendMessage(id uint32, msg *consmsgpb.WholeMessage) {
-	// content, err := proto.Marshal(m)
+	Sign(msg, tp.Peers[id].PublicKey)
 	m := NoiseMessage{Msg: msg}
 	err := tp.node.SendMessage(context.TODO(), tp.Peers[id].Addr, m)
 	for {
@@ -163,13 +156,26 @@ func (tp *HTTPTransport) Handler(ctx noise.HandlerContext) error {
 }
 
 func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
+	if msg.From == tp.id {
+		tp.msgc <- msg
+	}
 	if msg.ConsMsg.Type == consmsgpb.MessageType_VAL || msg.ConsMsg.Type == consmsgpb.MessageType_ECHO ||
 		msg.ConsMsg.Type == consmsgpb.MessageType_BVAL || msg.ConsMsg.Type == consmsgpb.MessageType_AUX {
 		if Verify(msg, tp.Peers[msg.From].PublicKey) {
+			if msg.ConsMsg.Type == consmsgpb.MessageType_VAL {
+				tp.proposal[msg.ConsMsg.Proposer] = msg.ConsMsg.Content
+			}
 			tp.msgc <- msg
 		}
 		return
 	}
+	if msg.ConsMsg.Type == consmsgpb.MessageType_ECHO_COLLECTION {
+		if tp.VerifyEchoCollection(msg) {
+			tp.msgc <- msg
+		}
+		return
+	}
+
 	tp.msgc <- msg
 }
 
@@ -186,6 +192,100 @@ func Verify(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) bool {
 	return b
 }
 
+func verify(content, sign []byte, pk *ecdsa.PrivateKey) bool {
+	hash, err := sha256.ComputeHash(content)
+	if err != nil {
+		panic("sha256 computeHash failed")
+	}
+	b, err := myecdsa.VerifyECDSA(&pk.PublicKey, sign, hash)
+	if err != nil {
+		log.Println("Failed to verify a consmsgpb: ", sign[0])
+	}
+	return b
+}
+
+func (tp HTTPTransport) VerifyEchoCollection(msg *consmsgpb.WholeMessage) bool {
+	mc := &consmsgpb.ConsMessage{
+		Type:     consmsgpb.MessageType_ECHO,
+		Proposer: msg.ConsMsg.Proposer,
+		Round:    msg.ConsMsg.Round,
+		Sequence: msg.ConsMsg.Sequence,
+		Content:  tp.proposal[msg.ConsMsg.Proposer],
+	}
+	content, err := proto.Marshal(mc)
+	if err != nil {
+		log.Printf("proto marshal fail: %v\n", err)
+		return false
+	}
+	collection := deserialCollection(msg.Collection)
+	for i, sign := range collection.Collections {
+		if len(sign) == 0 || tp.id == uint32(i) {
+			continue
+		}
+		if !verify(content, sign, tp.Peers[uint32(i)].PublicKey) {
+			return false
+		}
+	}
+	return true
+}
+
+func (tp HTTPTransport) VerifyCollection(msg *consmsgpb.WholeMessage) bool {
+	mc := &consmsgpb.ConsMessage{
+		Proposer: msg.ConsMsg.Proposer,
+		Round:    msg.ConsMsg.Round,
+		Sequence: msg.ConsMsg.Sequence,
+	}
+	if msg.ConsMsg.Type == consmsgpb.MessageType_BVAL_ZERO_COLLECTION ||
+		msg.ConsMsg.Type == consmsgpb.MessageType_BVAL_ONE_COLLECTION {
+		mc.Type = consmsgpb.MessageType_BVAL
+	} else {
+		mc.Type = consmsgpb.MessageType_AUX
+	}
+	if msg.ConsMsg.Type == consmsgpb.MessageType_BVAL_ZERO_COLLECTION ||
+		msg.ConsMsg.Type == consmsgpb.MessageType_AUX_ZERO_COLLECTION {
+		mc.Content = []byte{0}
+	} else {
+		mc.Content = []byte{1}
+	}
+	content, err := proto.Marshal(mc)
+	if err != nil {
+		log.Printf("proto marshal fail: %v\n", err)
+		return false
+	}
+	collection := deserialCollection(msg.Collection)
+	for i, sign := range collection.Collections {
+		if len(sign) == 0 || tp.id == uint32(i) {
+			continue
+		}
+		if !verify(content, sign, tp.Peers[uint32(i)].PublicKey) {
+			return false
+		}
+	}
+	return true
+}
+
+func Sign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {
+	content, _ := proto.Marshal(msg.ConsMsg)
+	hash, err := sha256.ComputeHash(content)
+	if err != nil {
+		panic("sha256 computeHash failed")
+	}
+	sig, err := myecdsa.SignECDSA(priv, hash)
+	if err != nil {
+		panic("myecdsa signECDSA failed")
+	}
+	msg.Signature = sig
+}
+
+func deserialCollection(data []byte) consmsgpb.Collections {
+	collection := consmsgpb.Collections{}
+	err := proto.Unmarshal(data, &collection)
+	if err != nil {
+		panic("Unmarshal collection failed")
+	}
+	return collection
+}
+
 // ClientMsgProcessor is responsible for listening and processing requests from clients
 type ClientMsgProcessor struct {
 	num  int
@@ -196,12 +296,6 @@ type ClientMsgProcessor struct {
 }
 
 func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// v, err := ioutil.ReadAll(r.Body)
-	// if err != nil {
-	// 	rprocessor.lg.Error("read client request error:", zap.Error(err))
-	// }
-
-	// key := r.RequestURI
 	defer r.Body.Close()
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -209,30 +303,22 @@ func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *htt
 		fmt.Println("Failed on PUT", http.StatusBadRequest)
 		return
 	}
-
 	if len(v) == 0 {
 		fmt.Println("error request size sent to : ", len(v), cmsgProcessor.id)
 		v = make([]byte, 4)
 	}
-	// bs := make([]byte, 4)
-	// binary.LittleEndian.PutUint32(bs, uint32(cmsgProcessor.num))
-
 	if len(v) > 0 {
 		cmsgProcessor.lg.Info("receive request",
 			zap.Int("proposer", int(cmsgProcessor.id)),
 			zap.Int("seq", cmsgProcessor.num),
 			zap.Int("content", int(v[0])))
 	}
-
 	cmsgProcessor.reqc <- v
-
 	rep := <-cmsgProcessor.repc
-
 	cmsgProcessor.lg.Info("reply request",
 		zap.Int("proposer", int(cmsgProcessor.id)),
 		zap.Int("seq", cmsgProcessor.num),
 		zap.Int("content", int(v[0])))
-
 	cmsgProcessor.num++
 	w.Write(rep)
 }
