@@ -97,9 +97,9 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTran
 		} else {
 			tp.PrivateKey = *p.PublicKey
 			ip := strings.Split(p.Addr, ":")
-			addr := ip[1][2:]
+// 			addr := ip[1][2:]
 			port, _ := strconv.ParseUint(ip[2], 10, 64)
-			node, _ := noise.NewNode(noise.WithNodeBindHost(net.ParseIP(addr)),
+			node, _ := noise.NewNode(noise.WithNodeBindHost(net.ParseIP("127.0.0.1")),
 				noise.WithNodeBindPort(uint16(port)), noise.WithNodeMaxRecvMessageSize(32*1024*1024))
 			tp.node = node
 		}
