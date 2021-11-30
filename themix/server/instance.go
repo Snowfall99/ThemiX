@@ -157,19 +157,11 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	}
 
 	switch msg.ConsMsg.Type {
-
-	/*
-	 * upon receiving VAL(v)src
-	 * if have not sent any ECHO(*) then
-	 * broadcast VAL(v)src, ECHO(v)i
-	 * start timer tmrR <- 2*delta
-	 */
 	case consmsgpb.MessageType_VAL:
 		inst.proposal = msg
 		hash, _ := sha256.ComputeHash(msg.ConsMsg.Content)
 		inst.hash = hash
 		if !inst.hasEcho {
-			// broadcast VAL(v)src, ECHO(v)i
 			inst.hasEcho = true
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
@@ -179,7 +171,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Sequence: msg.ConsMsg.Sequence,
 					Content:  hash,
 				}}
-			// Sign(m, inst.priv)
 			go inst.tp.Broadcast(m)
 			m = &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
@@ -192,30 +183,14 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			go inst.tp.Broadcast(m)
 		}
 		return inst.isFastDecided()
-
 	case consmsgpb.MessageType_VAL_SIGN:
 		inst.valMsgs[msg.From] = msg
-
-	/*
-	 * upon receiving f+1 ECHO(v), and tmrR expires
-	 * if have not received any VAL(v')src (v' != v) then
-	 * broadcast READY(v)i
-	 */
 	case consmsgpb.MessageType_ECHO:
-		// verify := Verify(msg, inst.priv)
-		// if !verify {
-		// 	return false, false
-		// }
 		if inst.echoSigns.Collections[msg.From] != nil {
 			return false, false
 		}
 		inst.numEcho++
 		inst.echoSigns.Collections[msg.From] = msg.Signature
-		/*
-		 * upon receiving ECHO(v) from fast group
-		 * broadcast ECHO(v) sent by fast group
-		 * deliver(v)
-		 */
 		if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
 			inst.fastRBC = true
 			collection := serialCollection(inst.echoSigns)
@@ -229,7 +204,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				Collection: collection,
 			}
 			go inst.tp.Broadcast(m)
-			if !inst.hasVotedZero && !inst.hasVotedOne {
+			if !inst.hasVotedOne {
 				inst.hasVotedOne = true
 				m := &consmsgpb.WholeMessage{
 					ConsMsg: &consmsgpb.ConsMessage{
@@ -239,16 +214,11 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Content:  []byte{1}, // vote 1
 					},
 				}
-				// Sign(m, inst.priv)
 				go inst.tp.Broadcast(m)
 			}
 		}
 		return inst.isFastDecided()
 	case consmsgpb.MessageType_BVAL:
-		// verify := Verify(msg, inst.priv)
-		// if !verify {
-		// 	return false, false
-		// }
 		var b bool
 		switch msg.ConsMsg.Content[0] {
 		case 0:
@@ -285,7 +255,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Content:  []byte{0}, // aux 0
 					},
 				}
-				// Sign(m, inst.priv)
 				go inst.tp.Broadcast(m)
 			}
 			b = true
@@ -317,7 +286,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Content:  []byte{1}, // aux 1
 					},
 				}
-				// Sign(m, inst.priv)
 				go inst.tp.Broadcast(m)
 			}
 		}
@@ -325,10 +293,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			return inst.isFastDecided()
 		}
 	case consmsgpb.MessageType_AUX:
-		// verify := Verify(msg, inst.priv)
-		// if !verify {
-		// 	return false, false
-		// }
 		switch msg.ConsMsg.Content[0] {
 		case 0:
 			inst.numAuxZero[msg.ConsMsg.Round]++
@@ -389,7 +353,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			}
 			return inst.isFastDecided()
 		}
-		// return inst.isFastDecided()
 	case consmsgpb.MessageType_SKIP:
 		switch msg.ConsMsg.Content[0] {
 		case 0:
@@ -405,7 +368,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		return inst.isFastDecided()
 	case consmsgpb.MessageType_ECHO_COLLECTION:
-		if inst.fastRBC || inst.hasVotedZero || inst.hasVotedOne || inst.hash == nil {
+		if inst.fastRBC || inst.hasVotedOne || inst.hash == nil {
 			return false, false
 		}
 		collection := deserialCollection(msg.Collection)
@@ -427,7 +390,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				Content:  []byte{1}, // vote 1
 			},
 		}
-		// Sign(m, inst.priv)
 		go inst.tp.Broadcast(m)
 		inst.isFastDecided()
 	case consmsgpb.MessageType_BVAL_ZERO_COLLECTION:
@@ -455,7 +417,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Content:  []byte{0}, // aux 0
 				},
 			}
-			// Sign(m, inst.priv)
 			go inst.tp.Broadcast(m)
 		}
 		inst.isFastDecided()
@@ -484,7 +445,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Content:  []byte{1}, // aux 1
 				},
 			}
-			// Sign(m, inst.priv)
 			go inst.tp.Broadcast(m)
 		}
 		inst.isFastDecided()
@@ -550,14 +510,18 @@ func (inst *instance) isFastDecided() (bool, bool) {
 		inst.isFinished = true
 		return false, true
 	}
-	if inst.proposal != nil &&
-		(inst.numZeroSkip >= inst.fastgroup || inst.numOneSkip >= inst.fastgroup) {
-		inst.binVals = 1
-		inst.isDecided = true
-		return true, false
-	} else {
-		return false, false
+	if inst.proposal != nil {
+		if inst.numZeroSkip >= inst.fastgroup {
+			inst.binVals = 0
+			inst.isDecided = true
+			return true, false
+		} else if inst.numOneSkip >= inst.fastgroup {
+			inst.binVals = 1
+			inst.isDecided = true
+			return true, false
+		}
 	}
+	return false, false
 }
 
 func (inst *instance) decidedOne() bool {
@@ -578,7 +542,7 @@ func (inst *instance) canVoteZero(sender uint32, seq uint64) {
 	inst.lock.Lock()
 	defer inst.lock.Unlock()
 
-	if inst.round == 0 && !inst.hasVotedZero && !inst.hasVotedOne {
+	if inst.round == 0 && !inst.hasVotedOne && !inst.hasVotedZero {
 		inst.hasVotedZero = true
 		m := &consmsgpb.WholeMessage{
 			ConsMsg: &consmsgpb.ConsMessage{
