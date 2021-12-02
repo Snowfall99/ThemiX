@@ -75,6 +75,7 @@ func UnmarshalNoiseMessage(buf []byte) (NoiseMessage, error) {
 // Broadcast msg to all peers
 func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 	msg.From = tp.id
+	Sign(msg, &tp.PrivateKey)
 	tp.msgc <- msg
 
 	for _, p := range tp.Peers {
@@ -129,7 +130,6 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTran
 }
 
 func (tp *HTTPTransport) SendMessage(id uint32, msg *consmsgpb.WholeMessage) {
-	Sign(msg, tp.Peers[id].PublicKey)
 	m := NoiseMessage{Msg: msg}
 	err := tp.node.SendMessage(context.TODO(), tp.Peers[id].Addr, m)
 	for {
@@ -162,9 +162,9 @@ func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
 	if msg.ConsMsg.Type == consmsgpb.MessageType_VAL || msg.ConsMsg.Type == consmsgpb.MessageType_ECHO ||
 		msg.ConsMsg.Type == consmsgpb.MessageType_BVAL || msg.ConsMsg.Type == consmsgpb.MessageType_AUX {
 		if Verify(msg, tp.Peers[msg.From].PublicKey) {
-			if msg.ConsMsg.Type == consmsgpb.MessageType_VAL {
-				tp.proposal[msg.ConsMsg.Proposer] = msg.ConsMsg.Content
-			}
+			// if msg.ConsMsg.Type == consmsgpb.MessageType_VAL {
+			// 	tp.proposal[msg.ConsMsg.Proposer] = msg.ConsMsg.Content
+			// }
 			tp.msgc <- msg
 		}
 		return

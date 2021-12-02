@@ -85,11 +85,11 @@ func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 		}
 
 		// Just for test
-		// if acs.numDecidedOne == acs.thld {
-		// 	for i, inst := range acs.instances {
-		// 		inst.canVoteZero(info.IDType(i), acs.sequence)
-		// 	}
-		// }
+		if acs.numDecidedOne == acs.thld {
+			for i, inst := range acs.instances {
+				inst.canVoteZero(uint32(i), acs.sequence)
+			}
+		}
 
 		if acs.numDecided == acs.n {
 			for _, inst := range acs.instances {
