@@ -15,98 +15,104 @@
 package http
 
 import (
-	"encoding/gob"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
-	"path"
 	"strconv"
+	"strings"
 	"sync"
-	"time"
 
-	"go.themix.io/transport/info"
-	"go.themix.io/transport/message"
+	"github.com/perlin-network/noise"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
-	consensusPrefix = "/cons"
-	clientPrefix    = "/client"
-	streamBufSize   = 40960
+	clientPrefix  = "/client"
+	streamBufSize = 40960
 )
 
-type streamWriter struct {
-	peerID  info.IDType
-	msgc    chan *message.ConsMessage
-	encoder *gob.Encoder
-	flusher http.Flusher
-	// isReady bool
-	// mu      sync.Mutex
-}
-
-type streamReader struct {
-	msgc    chan *message.ConsMessage
-	decoder *gob.Decoder
-}
-
 type peer struct {
-	peerID info.IDType
+	peerID uint32
 	addr   string
-	reader *streamReader
-	writer *streamWriter
 }
 
 // HTTPTransport is responsible for message exchange among nodes
 type HTTPTransport struct {
-	id    info.IDType
-	peers map[info.IDType]*peer
-	msgc  chan *message.ConsMessage
+	id    uint32
+	node  *noise.Node
+	peers map[uint32]*peer
+	msgc  chan *consmsgpb.WholeMessage
 	mu    sync.Mutex
 }
 
-func init() {
-	gob.Register(&message.ConsMessage{})
+type NoiseMessage struct {
+	Msg *consmsgpb.WholeMessage
+}
+
+func (m NoiseMessage) Marshal() []byte {
+	data, _ := proto.Marshal(m.Msg)
+	return data
+}
+
+func UnmarshalNoiseMessage(buf []byte) (NoiseMessage, error) {
+	m := NoiseMessage{Msg: new(consmsgpb.WholeMessage)}
+	err := proto.Unmarshal(buf, m.Msg)
+	if err != nil {
+		return NoiseMessage{}, err
+	}
+	return m, nil
 }
 
 // Broadcast msg to all peers
-func (tp *HTTPTransport) Broadcast(msg *message.ConsMessage) {
+func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 
 	msg.From = tp.id
 	tp.msgc <- msg
+
 	for _, p := range tp.peers {
-		if p.writer != nil {
-			p.writer.msgc <- msg
+		if p != nil {
+			go tp.SendMessage(p.peerID, msg)
 		}
 	}
 }
 
-// Send sends the given message to msg.To
-// func (tp *Transport) Send(msg *ConsMessage, to IDType) {
-// 	p := tp.peers[to]
-// 	p.writer.msgc <- msg
-// 	// p.writer.encoder.Encode(*msg)
-// 	// p.writer.flusher.Flush()
-// }
-
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
-func InitTransport(lg *zap.Logger, id info.IDType, port int, peers []string) (*HTTPTransport,
-	chan *message.ConsMessage, chan []byte, chan []byte) {
-	msgc := make(chan *message.ConsMessage, streamBufSize)
-	tp := &HTTPTransport{id: id, peers: make(map[info.IDType]*peer), msgc: msgc, mu: sync.Mutex{}}
+func InitTransport(lg *zap.Logger, id uint32, port int, peers []string) (*HTTPTransport,
+	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
+	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
+	// init tranport layer
+	tp := &HTTPTransport{id: id, peers: make(map[uint32]*peer), msgc: msgc, mu: sync.Mutex{}}
+
 	for i, p := range peers {
-		if index := info.IDType(i); index != id {
-			tp.peers[index] = &peer{peerID: index, addr: p}
+		if index := uint32(i); index != id {
+			tp.peers[index] = &peer{peerID: index, addr: p[7:]}
+		} else {
+			ip := strings.Split(p, ":")
+			addr := ip[1][2:]
+			port, _ := strconv.ParseUint(ip[2], 10, 64)
+			node, _ := noise.NewNode(noise.WithNodeBindHost(net.ParseIP(addr)),
+				noise.WithNodeBindPort(uint16(port)), noise.WithNodeMaxRecvMessageSize(32*1024*1024))
+			tp.node = node
 		}
 	}
+	tp.node.RegisterMessage(NoiseMessage{}, UnmarshalNoiseMessage)
+	tp.node.Handle(tp.Handler)
+	err := tp.node.Listen()
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("listening on %v\n", tp.node.Addr())
 
-	tp.connect()
-
+	//init client server
 	reqc := make(chan []byte, streamBufSize)
 	repc := make(chan []byte, streamBufSize)
 
@@ -114,11 +120,10 @@ func InitTransport(lg *zap.Logger, id info.IDType, port int, peers []string) (*H
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", http.NotFound)
-	mux.Handle(consensusPrefix, tp)
-	mux.Handle(consensusPrefix+"/", tp)
+	// mux.Handle(consensusPrefix, tp)
+	// mux.Handle(consensusPrefix+"/", tp)
 	mux.Handle(clientPrefix, rprocessor)
 	mux.Handle(clientPrefix+"/", rprocessor)
-
 	server := &http.Server{Addr: ":" + strconv.Itoa(port), Handler: mux}
 	server.SetKeepAlivesEnabled(true)
 
@@ -127,92 +132,44 @@ func InitTransport(lg *zap.Logger, id info.IDType, port int, peers []string) (*H
 	return tp, msgc, reqc, repc
 }
 
-func (tp *HTTPTransport) connect() {
-	for _, p := range tp.peers {
-		go dial(p, tp.id, tp.msgc)
-	}
-}
-
-func dial(p *peer, id info.IDType, msgc chan *message.ConsMessage) {
-	var r *streamReader
+func (tp *HTTPTransport) SendMessage(id uint32, msg *consmsgpb.WholeMessage) {
+	// content, err := proto.Marshal(m)
+	m := NoiseMessage{Msg: msg}
+	err := tp.node.SendMessage(context.TODO(), tp.peers[id].addr, m)
 	for {
-		req, err := http.NewRequest("GET",
-			p.addr+consensusPrefix+"/"+strconv.FormatUint(uint64(id), 10), nil)
-
-		if err != nil {
-			log.Fatal(err)
+		if err == nil {
+			return
+		} else {
+			fmt.Println("err", err.Error())
 		}
-
-		t := &http.Transport{
-			Dial: (&net.Dialer{
-				KeepAlive: 120 * time.Second,
-			}).Dial,
-		}
-
-		resp, err := t.RoundTrip(req)
-
-		if err != nil || resp.StatusCode != http.StatusOK {
-			fmt.Println(err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		r = &streamReader{msgc: msgc,
-			decoder: gob.NewDecoder(resp.Body)}
-		break
-	}
-	p.reader = r
-	go r.run()
-}
-
-func (sr *streamReader) run() {
-	for {
-		var m message.ConsMessage
-		if err := sr.decoder.Decode(&m); err != nil {
-			log.Fatal("decode error:", err)
-		}
-		sr.msgc <- &m
+		err = tp.node.SendMessage(context.TODO(), tp.peers[id].addr, m)
 	}
 }
 
-func (sw *streamWriter) run() {
-	for {
-		m := <-sw.msgc
-		err := sw.encoder.Encode(m)
-		if err != nil {
-			log.Fatal("encode error:", err)
-		}
-		sw.flusher.Flush()
+func (tp *HTTPTransport) Handler(ctx noise.HandlerContext) error {
+	obj, err := ctx.DecodeMessage()
+	if err != nil {
+		log.Fatal(err)
 	}
+	msg, ok := obj.(NoiseMessage)
+	if !ok {
+		log.Fatal(err)
+	}
+	tp.OnReceiveMessage(msg.Msg)
+	return nil
 }
 
-func (tp *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		w.Header().Set("Allow", "GET")
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
+func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
+	// logger.Debugf("receive %v from %v of %v-%v", msg.Type, msg.From, msg.Timestamp, msg.Sender)
 
-	w.WriteHeader(http.StatusOK)
-	w.(http.Flusher).Flush()
-
-	fromStr := path.Base(r.URL.Path)
-	fromID, _ := strconv.ParseUint(fromStr, 10, 64)
-	p := tp.peers[info.IDType(fromID)]
-
-	enc := gob.NewEncoder(w)
-
-	p.writer = &streamWriter{msgc: make(chan *message.ConsMessage, streamBufSize),
-		encoder: enc, flusher: w.(http.Flusher), peerID: info.IDType(fromID)}
-
-	p.writer.run()
+	tp.msgc <- msg
 }
 
 // ClientMsgProcessor is responsible for listening and processing requests from clients
 type ClientMsgProcessor struct {
 	num  int
 	lg   *zap.Logger
-	id   info.IDType
+	id   uint32
 	reqc chan []byte
 	repc chan []byte
 }

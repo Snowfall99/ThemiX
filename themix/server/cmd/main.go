@@ -22,7 +22,6 @@ import (
 
 	"go.themix.io/crypto/bls"
 	"go.themix.io/themix/server"
-	"go.themix.io/transport/info"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -142,7 +141,7 @@ func main() {
 	// }
 	// defer conn.Close()
 
-	server.InitNode(lg, bls, *pk, info.IDType(*id), uint64(len(addrs)), *port, addrs, *batchsize)
+	server.InitNode(lg, bls, *pk, uint32(*id), uint64(len(addrs)), *port, addrs, *batchsize)
 
 	// time.Sleep(5 * time.Second)
 

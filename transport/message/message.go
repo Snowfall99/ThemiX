@@ -44,15 +44,20 @@ const (
 	VAL_SIGN             MessageType = 14
 )
 
-// ConsMessage is the message type exchanged for achieving consensus
+// ConsMessage is the message type for achieving consensus
 type ConsMessage struct {
-	Type       MessageType
-	Proposer   info.IDType
+	Type     MessageType
+	Proposer info.IDType
+	Round    uint8
+	Sequence uint64
+	Content  []byte
+}
+
+// WholeMessage is the message type to hold consmessage and signature
+type WholeMessage struct {
+	ConsMsg    *ConsMessage
 	From       info.IDType
-	Round      uint8
-	Sequence   uint64
 	Signature  []byte
-	Content    []byte
 	Collection []byte
 }
 

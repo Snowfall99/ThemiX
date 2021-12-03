@@ -21,7 +21,7 @@ import (
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
-	"go.themix.io/transport/message"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +36,7 @@ type asyncCommSubset struct {
 	numDecidedOne uint64
 	instances     []*instance
 	proposer      *Proposer
-	reqc          chan *message.ConsMessage
+	reqc          chan *consmsgpb.WholeMessage
 	lock          sync.Mutex
 }
 
@@ -47,7 +47,7 @@ func initACS(st *state,
 	pkPath string,
 	proposer *Proposer,
 	seq uint64, n uint64,
-	reqc chan *message.ConsMessage) *asyncCommSubset {
+	reqc chan *consmsgpb.WholeMessage) *asyncCommSubset {
 	re := &asyncCommSubset{
 		st:        st,
 		lg:        lg,
@@ -57,7 +57,6 @@ func initACS(st *state,
 		instances: make([]*instance, n),
 		reqc:      reqc,
 		lock:      sync.Mutex{},
-		//coordinator: coordinator
 	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
@@ -66,14 +65,14 @@ func initACS(st *state,
 	return re
 }
 
-func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
-	isDecided, isFinished := acs.instances[msg.Proposer].insertMsg(msg)
+func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
+	isDecided, isFinished := acs.instances[msg.ConsMsg.Proposer].insertMsg(msg)
 	if isDecided {
 		acs.lock.Lock()
 		defer acs.lock.Unlock()
 
-		if !acs.instances[msg.Proposer].decidedOne() && msg.Proposer == acs.proposer.id {
-			fmt.Printf("ID %d decided zero at %d\n", msg.Proposer, msg.Sequence)
+		if !acs.instances[msg.ConsMsg.Proposer].decidedOne() && msg.ConsMsg.Proposer == acs.proposer.id {
+			fmt.Printf("ID %d decided zero at %d\n", msg.ConsMsg.Proposer, msg.ConsMsg.Sequence)
 		}
 
 		acs.numDecided++
@@ -81,7 +80,7 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 			acs.proposer.proceed(acs.sequence)
 		}
 
-		if acs.instances[msg.Proposer].decidedOne() {
+		if acs.instances[msg.ConsMsg.Proposer].decidedOne() {
 			acs.numDecidedOne++
 		}
 
@@ -95,24 +94,24 @@ func (acs *asyncCommSubset) insertMsg(msg *message.ConsMessage) {
 		if acs.numDecided == acs.n {
 			for _, inst := range acs.instances {
 				proposal := inst.getProposal()
-				if inst.decidedOne() && len(proposal.Content) != 0 {
+				if inst.decidedOne() && len(proposal.ConsMsg.Content) != 0 {
 					inst.lg.Info("executed",
-						zap.Int("proposer", int(proposal.Proposer)),
-						zap.Int("seq", int(msg.Sequence)),
-						zap.Int("content", int(proposal.Content[0])))
+						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+						zap.Int("seq", int(msg.ConsMsg.Sequence)),
+						zap.Int("content", int(proposal.ConsMsg.Content[0])))
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
 					acs.reqc <- proposal
-				} else if proposal.Proposer == acs.proposer.id && len(proposal.Content) != 0 {
+				} else if proposal.ConsMsg.Proposer == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
 					inst.lg.Info("repropose",
-						zap.Int("proposer", int(proposal.Proposer)),
-						zap.Int("seq", int(proposal.Sequence)),
-						zap.Int("content", int(proposal.Content[0])))
+						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+						zap.Int("seq", int(proposal.ConsMsg.Sequence)),
+						zap.Int("content", int(proposal.ConsMsg.Content[0])))
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
-					acs.proposer.propose(proposal.Content)
+					acs.proposer.propose(proposal.ConsMsg.Content)
 				} else if inst.decidedOne() {
 					inst.lg.Info("empty",
-						zap.Int("proposer", int(proposal.Proposer)),
-						zap.Int("seq", int(proposal.Sequence)))
+						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
+						zap.Int("seq", int(proposal.ConsMsg.Sequence)))
 				}
 			}
 		}

@@ -1,7 +1,7 @@
 start=$SECONDS
 for (( i=1; i<=$1; i++ ))
 do
-        curl $2 --data 'a'
+        /opt/homebrew/opt/curl/bin/curl $2 --data 'a'
 done
 end=$SECONDS
 duration=$(( end - start ))

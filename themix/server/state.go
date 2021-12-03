@@ -19,8 +19,7 @@ import (
 
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
-	"go.themix.io/transport/info"
-	"go.themix.io/transport/message"
+	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
@@ -30,21 +29,20 @@ type state struct {
 	blsSig    *bls.BlsSig
 	pkPath    string
 	proposer  *Proposer
-	id        info.IDType
+	id        uint32
 	n         uint64
 	collected uint64
 	execs     map[uint64]*asyncCommSubset
 	lock      sync.RWMutex
-	reqc      chan *message.ConsMessage
+	reqc      chan *consmsgpb.WholeMessage
 	repc      chan []byte
-	// coordinator net.Conn
 }
 
 func initState(lg *zap.Logger,
 	tp transport.Transport,
 	blsSig *bls.BlsSig,
 	pkPath string,
-	id info.IDType,
+	id uint32,
 	proposer *Proposer,
 	n uint64, repc chan []byte,
 	batchsize int) *state {
@@ -59,35 +57,30 @@ func initState(lg *zap.Logger,
 		collected: 0,
 		execs:     make(map[uint64]*asyncCommSubset),
 		lock:      sync.RWMutex{},
-		reqc:      make(chan *message.ConsMessage, 2*int(n)*batchsize),
+		reqc:      make(chan *consmsgpb.WholeMessage, 2*int(n)*batchsize),
 		repc:      repc,
-		//coordinator: coordinator
 	}
 	go st.run()
 	return st
 }
 
-func (st *state) insertMsg(msg *message.ConsMessage) {
+func (st *state) insertMsg(msg *consmsgpb.WholeMessage) {
 	st.lock.RLock()
-	// if msg.Sequence < st.collected {
-	// 	st.lock.RUnlock()
-	// 	return
-	// }
 
-	if exec, ok := st.execs[msg.Sequence]; ok {
+	if exec, ok := st.execs[msg.ConsMsg.Sequence]; ok {
 		st.lock.RUnlock()
 		exec.insertMsg(msg)
 	} else {
-		if st.collected <= msg.Sequence {
+		if st.collected <= msg.ConsMsg.Sequence {
 			st.lock.RUnlock()
 
-			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.Sequence, st.n, st.reqc)
+			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
 
 			st.lock.Lock()
-			if e, ok := st.execs[msg.Sequence]; ok {
+			if e, ok := st.execs[msg.ConsMsg.Sequence]; ok {
 				exec = e
 			} else {
-				st.execs[msg.Sequence] = exec
+				st.execs[msg.ConsMsg.Sequence] = exec
 			}
 			st.lock.Unlock()
 
@@ -110,7 +103,7 @@ func (st *state) garbageCollect(seq uint64) {
 func (st *state) run() {
 	for {
 		req := <-st.reqc
-		if req.Proposer == st.id {
+		if req.ConsMsg.Proposer == st.id {
 			st.repc <- []byte{}
 		}
 	}
