@@ -35,7 +35,7 @@ import (
 
 var (
 	clientPrefix  = "/client"
-	streamBufSize = 40960
+	streamBufSize = 40960 * 16
 )
 
 type Peer struct {
@@ -166,23 +166,16 @@ func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
 		}
 		return
 	}
-	if msg.ConsMsg.Type == consmsgpb.MessageType_ECHO_COLLECTION {
-		if tp.VerifyEchoCollection(msg) {
-			tp.msgc <- msg
-		}
-		return
-	}
-
 	tp.msgc <- msg
 }
 
-func Verify(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) bool {
+func Verify(msg *consmsgpb.WholeMessage, pub *ecdsa.PrivateKey) bool {
 	content, _ := proto.Marshal(msg.ConsMsg)
 	hash, err := sha256.ComputeHash(content)
 	if err != nil {
 		panic("sha256 computeHash failed")
 	}
-	b, err := myecdsa.VerifyECDSA(&priv.PublicKey, msg.Signature, hash)
+	b, err := myecdsa.VerifyECDSA(&pub.PublicKey, msg.Signature, hash)
 	if err != nil {
 		fmt.Println("Failed to verify a consmsgpb: ", err)
 	}
@@ -199,66 +192,6 @@ func verify(content, sign []byte, pk *ecdsa.PrivateKey) bool {
 		log.Println("Failed to verify a consmsgpb: ", sign[0])
 	}
 	return b
-}
-
-func (tp HTTPTransport) VerifyEchoCollection(msg *consmsgpb.WholeMessage) bool {
-	mc := &consmsgpb.ConsMessage{
-		Type:     consmsgpb.MessageType_ECHO,
-		Proposer: msg.ConsMsg.Proposer,
-		Round:    msg.ConsMsg.Round,
-		Sequence: msg.ConsMsg.Sequence,
-		Content:  tp.proposal[msg.ConsMsg.Proposer],
-	}
-	content, err := proto.Marshal(mc)
-	if err != nil {
-		log.Printf("proto marshal fail: %v\n", err)
-		return false
-	}
-	collection := deserialCollection(msg.Collection)
-	for i, sign := range collection.Collections {
-		if len(sign) == 0 || tp.id == uint32(i) {
-			continue
-		}
-		if !verify(content, sign, tp.Peers[uint32(i)].PublicKey) {
-			return false
-		}
-	}
-	return true
-}
-
-func (tp HTTPTransport) VerifyCollection(msg *consmsgpb.WholeMessage) bool {
-	mc := &consmsgpb.ConsMessage{
-		Proposer: msg.ConsMsg.Proposer,
-		Round:    msg.ConsMsg.Round,
-		Sequence: msg.ConsMsg.Sequence,
-	}
-	if msg.ConsMsg.Type == consmsgpb.MessageType_BVAL_ZERO_COLLECTION ||
-		msg.ConsMsg.Type == consmsgpb.MessageType_BVAL_ONE_COLLECTION {
-		mc.Type = consmsgpb.MessageType_BVAL
-	} else {
-		mc.Type = consmsgpb.MessageType_AUX
-	}
-	if msg.ConsMsg.Type == consmsgpb.MessageType_BVAL_ZERO_COLLECTION ||
-		msg.ConsMsg.Type == consmsgpb.MessageType_AUX_ZERO_COLLECTION {
-		mc.Content = []byte{0}
-	} else {
-		mc.Content = []byte{1}
-	}
-	content, err := proto.Marshal(mc)
-	if err != nil {
-		log.Printf("proto marshal fail: %v\n", err)
-		return false
-	}
-	collection := deserialCollection(msg.Collection)
-	for i, sign := range collection.Collections {
-		if len(sign) == 0 || tp.id == uint32(i) {
-			continue
-		}
-		if !verify(content, sign, tp.Peers[uint32(i)].PublicKey) {
-			return false
-		}
-	}
-	return true
 }
 
 func Sign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {

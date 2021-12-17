@@ -60,7 +60,7 @@ func initACS(st *state,
 	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
-		re.instances[i] = initInstance(lg, tp, blsSig, pkPath, seq, n, re.thld)
+		re.instances[i] = initInstance(uint32(i), lg, tp, blsSig, pkPath, seq, n, re.thld)
 	}
 	return re
 }
@@ -84,7 +84,6 @@ func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 			acs.numDecidedOne++
 		}
 
-		// Just for test
 		if acs.numDecidedOne == acs.thld {
 			for i, inst := range acs.instances {
 				inst.canVoteZero(uint32(i), acs.sequence)
