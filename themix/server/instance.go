@@ -36,6 +36,7 @@ var maxround = 30
 
 type instance struct {
 	id            uint32
+	proposer      uint32
 	tp            transport.Transport
 	blsSig        *bls.BlsSig
 	fastRBC       bool
@@ -92,9 +93,10 @@ type instance struct {
 	lock          sync.Mutex
 }
 
-func initInstance(id uint32, lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pkPath string, sequence uint64, n uint64, thld uint64) *instance {
+func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pkPath string, sequence uint64, n uint64, thld uint64) *instance {
 	inst := &instance{
 		id:            id,
+		proposer:      proposer,
 		lg:            lg,
 		tp:            tp,
 		blsSig:        blsSig,
@@ -704,9 +706,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 }
 
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
-	if inst.proposal != nil &&
-		(inst.numOneSkip[inst.round] >= inst.fastgroup ||
-			inst.numZeroSkip[inst.round] >= inst.fastgroup) {
+	if (inst.numOneSkip[inst.round] >= inst.fastgroup && inst.proposal != nil) ||
+		(inst.numZeroSkip[inst.round] >= inst.fastgroup && inst.id == inst.proposer && inst.proposal != nil) ||
+		(inst.numZeroSkip[inst.round] >= inst.fastgroup && inst.id != inst.proposer) {
 		if inst.isDecided {
 			inst.isFinished = true
 			return false, true

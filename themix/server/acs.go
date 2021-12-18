@@ -60,7 +60,7 @@ func initACS(st *state,
 	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
-		re.instances[i] = initInstance(uint32(i), lg, tp, blsSig, pkPath, seq, n, re.thld)
+		re.instances[i] = initInstance(uint32(i), proposer.id, lg, tp, blsSig, pkPath, seq, n, re.thld)
 	}
 	return re
 }
@@ -100,7 +100,7 @@ func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 						zap.Int("content", int(proposal.ConsMsg.Content[0])))
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
 					acs.reqc <- proposal
-				} else if proposal != nil && proposal.ConsMsg.Proposer == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
+				} else if inst.id == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
 					inst.lg.Info("repropose",
 						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
 						zap.Int("seq", int(proposal.ConsMsg.Sequence)),
