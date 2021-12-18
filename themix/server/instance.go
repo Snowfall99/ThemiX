@@ -374,7 +374,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				go func() {
 					<-inst.tmrS[inst.round].C
 					inst.lg.Info("Can skip coin is false",
-						zap.Int("round", int(inst.round)))
+						zap.Int("sequence", int(inst.sequence)),
+						zap.Int("round", int(inst.round)),
+						zap.Int("proposer", int(msg.ConsMsg.Proposer)))
 					inst.canSkipCoin[msg.ConsMsg.Round] = false
 				}()
 			}
@@ -748,7 +750,6 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		return true, false
 	}
 	if inst.hasSentCoin &&
-		inst.proposal != nil &&
 		inst.numCoin[inst.round] > inst.f &&
 		inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld &&
 		((inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld) ||
@@ -769,6 +770,9 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 			if inst.isDecided {
 				inst.isFinished = true
 				return false, true
+			}
+			if inst.binVals == 1 && inst.proposal == nil {
+				return false, false
 			}
 			inst.lg.Info("coin result",
 				zap.Int("proposer", int(inst.id)),

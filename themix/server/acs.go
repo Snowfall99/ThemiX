@@ -100,7 +100,7 @@ func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 						zap.Int("content", int(proposal.ConsMsg.Content[0])))
 					// zap.Int("content", int(binary.LittleEndian.Uint32(proposal.Content))))
 					acs.reqc <- proposal
-				} else if proposal.ConsMsg.Proposer == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
+				} else if proposal != nil && proposal.ConsMsg.Proposer == acs.proposer.id && len(proposal.ConsMsg.Content) != 0 {
 					inst.lg.Info("repropose",
 						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
 						zap.Int("seq", int(proposal.ConsMsg.Sequence)),
@@ -111,6 +111,10 @@ func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 					inst.lg.Info("empty",
 						zap.Int("proposer", int(proposal.ConsMsg.Proposer)),
 						zap.Int("seq", int(proposal.ConsMsg.Sequence)))
+				} else {
+					inst.lg.Info("decide 0 without proposal",
+						zap.Int("proposer", int(inst.id)),
+						zap.Int("seq", int(inst.sequence)))
 				}
 			}
 		}
