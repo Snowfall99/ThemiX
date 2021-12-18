@@ -748,6 +748,7 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		return true, false
 	}
 	if inst.hasSentCoin &&
+		inst.proposal != nil &&
 		inst.numCoin[inst.round] > inst.f &&
 		inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld &&
 		((inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld) ||
@@ -813,16 +814,18 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 
 // must be executed within inst.lock
 func (inst *instance) isReadyToSendCoin() {
-	if !inst.hasSentCoin && inst.expireB[inst.round] && inst.proposal != nil {
-		if inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld {
-			inst.binVals = 1
-		} else if inst.zeroEndorsed && inst.numAuxZero[inst.round] >= inst.thld {
-			inst.binVals = 0
-		} else if inst.oneEndorsed && inst.zeroEndorsed &&
-			inst.numAuxOne[inst.round]+inst.numAuxZero[inst.round] >= inst.thld {
-			inst.binVals = 2
-		} else {
-			return
+	if !inst.hasSentCoin && inst.expireB[inst.round] {
+		if !inst.isDecided {
+			if inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld {
+				inst.binVals = 1
+			} else if inst.zeroEndorsed && inst.numAuxZero[inst.round] >= inst.thld {
+				inst.binVals = 0
+			} else if inst.oneEndorsed && inst.zeroEndorsed &&
+				inst.numAuxOne[inst.round]+inst.numAuxZero[inst.round] >= inst.thld {
+				inst.binVals = 2
+			} else {
+				return
+			}
 		}
 
 		inst.lg.Info("send coin",
