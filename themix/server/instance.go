@@ -773,7 +773,8 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 				inst.isFinished = true
 				return false, true
 			}
-			if inst.binVals == 1 && inst.proposal == nil {
+			if (inst.binVals == 1 && inst.proposal == nil) ||
+				(inst.binVals == 0 && inst.proposal == nil && inst.id == inst.proposer) {
 				return false, false
 			}
 			inst.lg.Info("coin result",
