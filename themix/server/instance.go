@@ -211,7 +211,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_VAL_SIGN:
 		inst.valMsgs[msg.From] = msg
 	case consmsgpb.MessageType_ECHO:
-		if inst.echoSigns.Collections[msg.From] != nil {
+		if inst.echoSigns.Collections[msg.From] != nil || inst.round != 0 {
 			return false, false
 		}
 		inst.numEcho++
@@ -262,11 +262,11 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		return inst.isReadyToEnterNewRound()
 	case consmsgpb.MessageType_READY:
-		inst.numReady++
-		inst.readySigns.Collections[msg.From] = msg.Signature
-		if inst.readySigns.Collections[msg.From] != nil {
+		if inst.readySigns.Collections[msg.From] != nil || inst.round != 0 {
 			return false, false
 		}
+		inst.numReady++
+		inst.readySigns.Collections[msg.From] = msg.Signature
 		if inst.numReady >= inst.f+1 && inst.round == 0 && !inst.fastRBC {
 			collection := serialCollection(inst.readySigns)
 			m := &consmsgpb.WholeMessage{
@@ -500,6 +500,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			switch msg.ConsMsg.Content[0] {
 			case 0:
 				if (!inst.hasVotedZero || !inst.hasSentAux) && inst.numAuxZero[msg.ConsMsg.Round] >= inst.fastgroup {
+					inst.hasVotedZero = true
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
 							Type:     consmsgpb.MessageType_BVAL,
@@ -512,6 +513,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				}
 			case 1:
 				if (!inst.hasVotedOne || !inst.hasSentAux) && inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup {
+					inst.hasVotedOne = true
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
 							Type:     consmsgpb.MessageType_BVAL,
@@ -535,10 +537,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		case 1:
 			inst.numOneSkip[msg.ConsMsg.Round]++
 		}
-		if inst.round == msg.ConsMsg.Round && msg.ConsMsg.Content[0] == 0 && inst.proposal != nil && inst.numZeroSkip[msg.ConsMsg.Round] >= inst.fastgroup {
-			return inst.isReadyToEnterNewRound()
-		}
-		if inst.round == msg.ConsMsg.Round && msg.ConsMsg.Content[0] == 1 && inst.proposal != nil && inst.numOneSkip[msg.ConsMsg.Round] >= inst.fastgroup {
+		if inst.round == msg.ConsMsg.Round {
 			return inst.isReadyToEnterNewRound()
 		}
 	case consmsgpb.MessageType_COIN:
@@ -548,7 +547,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			return inst.isReadyToEnterNewRound()
 		}
 	case consmsgpb.MessageType_ECHO_COLLECTION:
-		if inst.fastRBC || inst.hasVotedOne || inst.hash == nil {
+		if inst.fastRBC || inst.hasVotedOne || inst.hash == nil || inst.round != 0 {
 			return false, false
 		}
 		if !inst.verifyECHOCollection(msg) {
@@ -576,7 +575,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.tp.Broadcast(m)
 		return inst.isReadyToEnterNewRound()
 	case consmsgpb.MessageType_BVAL_ZERO_COLLECTION:
-		if inst.zeroEndorsed || inst.oneEndorsed || inst.hasSentAux {
+		if inst.zeroEndorsed || inst.oneEndorsed || inst.hasSentAux || inst.round != msg.ConsMsg.Round {
 			return false, false
 		}
 		if !inst.VerifyCollection(msg) {
@@ -608,7 +607,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.isReadyToSendCoin()
 		return inst.isReadyToEnterNewRound()
 	case consmsgpb.MessageType_BVAL_ONE_COLLECTION:
-		if inst.oneEndorsed || inst.zeroEndorsed || inst.hasSentAux {
+		if inst.oneEndorsed || inst.zeroEndorsed || inst.hasSentAux || inst.round != msg.ConsMsg.Round {
 			return false, false
 		}
 		if !inst.VerifyCollection(msg) {
