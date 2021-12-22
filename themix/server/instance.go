@@ -35,62 +35,61 @@ import (
 var maxround = 30
 
 type instance struct {
-	id            uint32
-	proposer      uint32
-	tp            transport.Transport
-	blsSig        *bls.BlsSig
-	fastRBC       bool
-	hasEcho       bool
-	hasVotedZero  bool
-	hasVotedOne   bool
-	hasSentAux    bool
-	hasSentCoin   bool
-	zeroEndorsed  bool
-	oneEndorsed   bool
-	fastAuxZero   bool
-	fastAuxOne    bool
-	isDecided     bool
-	isFinished    bool
-	sequence      uint64
-	n             uint64
-	thld          uint64
-	f             uint64
-	fastgroup     uint64
-	round         uint32
-	numEcho       uint64
-	numReady      uint64
-	binVals       uint8
-	lastCoin      uint8
-	hash          []byte
-	sin           []bool
-	canSkipCoin   []bool
-	numBvalZero   []uint64
-	numBvalOne    []uint64
-	numAuxZero    []uint64
-	numAuxOne     []uint64
-	numOneSkip    []uint64
-	numZeroSkip   []uint64
-	numCon        []uint64
-	numCoin       []uint64
-	echoSigns     *consmsgpb.Collections
-	readySigns    *consmsgpb.Collections
-	proposal      *consmsgpb.WholeMessage
-	valMsgs       []*consmsgpb.WholeMessage
-	bvalZeroSigns []*consmsgpb.Collections
-	bvalOneSigns  []*consmsgpb.Collections
-	auxZeroSigns  []*consmsgpb.Collections
-	auxOneSigns   []*consmsgpb.Collections
-	coinMsgs      [][]*consmsgpb.WholeMessage
-	startR        bool
-	startB        []bool
-	startS        []bool
-	expireB       []bool
-	tmrR          time.Timer
-	tmrB          []time.Timer
-	tmrS          []time.Timer
-	priv          *ecdsa.PrivateKey
-	lg            *zap.Logger
-	lock          sync.Mutex
+	id                 uint32
+	proposer           uint32
+	tp                 transport.Transport
+	blsSig             *bls.BlsSig
+	fastRBC            bool
+	hasEcho            bool
+	hasEchoCollection  bool
+	hasReadyCollection bool
+	hasVotedZero       bool
+	hasVotedOne        bool
+	hasSentAux         bool
+	hasSentCoin        bool
+	zeroEndorsed       bool
+	oneEndorsed        bool
+	fastAuxZero        bool
+	fastAuxOne         bool
+	isDecided          bool
+	isFinished         bool
+	sequence           uint64
+	n                  uint64
+	thld               uint64
+	f                  uint64
+	fastgroup          uint64
+	round              uint32
+	numEcho            uint64
+	numReady           uint64
+	binVals            uint8
+	lastCoin           uint8
+	hash               []byte
+	sin                []bool
+	canSkipCoin        []bool
+	numBvalZero        []uint64
+	numBvalOne         []uint64
+	numAuxZero         []uint64
+	numAuxOne          []uint64
+	numOneSkip         []uint64
+	numZeroSkip        []uint64
+	numCon             []uint64
+	numCoin            []uint64
+	echoSigns          *consmsgpb.Collections
+	readySigns         *consmsgpb.Collections
+	proposal           *consmsgpb.WholeMessage
+	valMsgs            []*consmsgpb.WholeMessage
+	bvalZeroSigns      []*consmsgpb.Collections
+	bvalOneSigns       []*consmsgpb.Collections
+	auxZeroSigns       []*consmsgpb.Collections
+	auxOneSigns        []*consmsgpb.Collections
+	coinMsgs           [][]*consmsgpb.WholeMessage
+	startR             bool
+	startB             []bool
+	startS             []bool
+	expireB            []bool
+	priv               *ecdsa.PrivateKey
+	lg                 *zap.Logger
+	lock               sync.Mutex
 }
 
 func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pkPath string, sequence uint64, n uint64, thld uint64) *instance {
@@ -125,8 +124,6 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		numCoin:       make([]uint64, maxround),
 		numZeroSkip:   make([]uint64, maxround),
 		numOneSkip:    make([]uint64, maxround),
-		tmrB:          make([]time.Timer, maxround),
-		tmrS:          make([]time.Timer, maxround),
 		lock:          sync.Mutex{}}
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
 	inst.priv, _ = myecdsa.LoadKey(pkPath)
@@ -218,9 +215,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.echoSigns.Collections[msg.From] = msg.Signature
 		if inst.numEcho >= inst.f+1 && !inst.startR {
 			inst.startR = true
-			inst.tmrR = *time.NewTimer(2 * time.Second)
 			go func() {
-				<-inst.tmrR.C
+				time.Sleep(2 * time.Second)
 				if inst.numEcho >= inst.f+1 {
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
@@ -234,17 +230,20 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			}()
 		}
 		if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
-			collection := serialCollection(inst.echoSigns)
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_ECHO_COLLECTION,
-					Proposer: msg.ConsMsg.Proposer,
-					Round:    msg.ConsMsg.Round,
-					Sequence: msg.ConsMsg.Sequence,
-				},
-				Collection: collection,
+			if !inst.hasEchoCollection {
+				inst.hasEchoCollection = true
+				collection := serialCollection(inst.echoSigns)
+				m := &consmsgpb.WholeMessage{
+					ConsMsg: &consmsgpb.ConsMessage{
+						Type:     consmsgpb.MessageType_ECHO_COLLECTION,
+						Proposer: msg.ConsMsg.Proposer,
+						Round:    msg.ConsMsg.Round,
+						Sequence: msg.ConsMsg.Sequence,
+					},
+					Collection: collection,
+				}
+				inst.tp.Broadcast(m)
 			}
-			inst.tp.Broadcast(m)
 			if !inst.hasVotedOne && inst.proposal != nil {
 				inst.hasVotedOne = true
 				inst.fastRBC = true
@@ -268,17 +267,20 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.numReady++
 		inst.readySigns.Collections[msg.From] = msg.Signature
 		if inst.numReady >= inst.f+1 && inst.round == 0 && !inst.fastRBC {
-			collection := serialCollection(inst.readySigns)
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_READY_COLLECTION,
-					Proposer: msg.ConsMsg.Proposer,
-					Round:    msg.ConsMsg.Round,
-					Sequence: msg.ConsMsg.Sequence,
-				},
-				Collection: collection,
+			if !inst.hasReadyCollection {
+				inst.hasReadyCollection = true
+				collection := serialCollection(inst.readySigns)
+				m := &consmsgpb.WholeMessage{
+					ConsMsg: &consmsgpb.ConsMessage{
+						Type:     consmsgpb.MessageType_READY_COLLECTION,
+						Proposer: msg.ConsMsg.Proposer,
+						Round:    msg.ConsMsg.Round,
+						Sequence: msg.ConsMsg.Sequence,
+					},
+					Collection: collection,
+				}
+				inst.tp.Broadcast(m)
 			}
-			inst.tp.Broadcast(m)
 			if !inst.hasVotedOne && inst.proposal != nil {
 				inst.fastRBC = true
 				inst.hasVotedOne = true
@@ -371,10 +373,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if b && inst.round == msg.ConsMsg.Round {
 			if !inst.startS[inst.round] {
 				inst.startS[inst.round] = true
-
-				inst.tmrS[inst.round] = *time.NewTimer(2 * time.Second)
 				go func() {
-					<-inst.tmrS[inst.round].C
+					time.Sleep(2 * time.Second)
 					inst.lg.Info("Can skip coin is false",
 						zap.Int("sequence", int(inst.sequence)),
 						zap.Int("round", int(inst.round)),
@@ -429,9 +429,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		if inst.round == msg.ConsMsg.Round && inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld && !inst.startB[inst.round] {
 			inst.startB[inst.round] = true
-			inst.tmrB[inst.round] = *time.NewTimer(4 * time.Second)
 			go func() {
-				<-inst.tmrB[inst.round].C
+				time.Sleep(4 * time.Second)
 				inst.expireB[inst.round] = true
 				if inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] > inst.f &&
 					((inst.numAuxZero[inst.round] != 0 && inst.numBvalZero[inst.round] > inst.f) ||
