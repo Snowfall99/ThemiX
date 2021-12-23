@@ -59,7 +59,10 @@ type NoiseMessage struct {
 }
 
 func (m NoiseMessage) Marshal() []byte {
-	data, _ := proto.Marshal(m.Msg)
+	data, err := proto.Marshal(m.Msg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	return data
 }
 
@@ -155,13 +158,11 @@ func (tp *HTTPTransport) Handler(ctx noise.HandlerContext) error {
 func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
 	if msg.From == tp.id {
 		tp.msgc <- msg
+		return
 	}
 	if msg.ConsMsg.Type == consmsgpb.MessageType_VAL || msg.ConsMsg.Type == consmsgpb.MessageType_ECHO ||
 		msg.ConsMsg.Type == consmsgpb.MessageType_BVAL || msg.ConsMsg.Type == consmsgpb.MessageType_AUX {
 		if Verify(msg, tp.Peers[msg.From].PublicKey) {
-			// if msg.ConsMsg.Type == consmsgpb.MessageType_VAL {
-			// 	tp.proposal[msg.ConsMsg.Proposer] = msg.ConsMsg.Content
-			// }
 			tp.msgc <- msg
 		}
 		return
@@ -170,7 +171,10 @@ func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
 }
 
 func Verify(msg *consmsgpb.WholeMessage, pub *ecdsa.PrivateKey) bool {
-	content, _ := proto.Marshal(msg.ConsMsg)
+	content, err := proto.Marshal(msg.ConsMsg)
+	if err != nil {
+		panic(err)
+	}
 	hash, err := sha256.ComputeHash(content)
 	if err != nil {
 		panic("sha256 computeHash failed")
@@ -182,20 +186,11 @@ func Verify(msg *consmsgpb.WholeMessage, pub *ecdsa.PrivateKey) bool {
 	return b
 }
 
-func verify(content, sign []byte, pk *ecdsa.PrivateKey) bool {
-	hash, err := sha256.ComputeHash(content)
-	if err != nil {
-		panic("sha256 computeHash failed")
-	}
-	b, err := myecdsa.VerifyECDSA(&pk.PublicKey, sign, hash)
-	if err != nil {
-		log.Println("Failed to verify a consmsgpb: ", sign[0])
-	}
-	return b
-}
-
 func Sign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {
-	content, _ := proto.Marshal(msg.ConsMsg)
+	content, err := proto.Marshal(msg.ConsMsg)
+	if err != nil {
+		panic(err)
+	}
 	hash, err := sha256.ComputeHash(content)
 	if err != nil {
 		panic("sha256 computeHash failed")
@@ -205,15 +200,6 @@ func Sign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {
 		panic("myecdsa signECDSA failed")
 	}
 	msg.Signature = sig
-}
-
-func deserialCollection(data []byte) consmsgpb.Collections {
-	collection := consmsgpb.Collections{}
-	err := proto.Unmarshal(data, &collection)
-	if err != nil {
-		panic("Unmarshal collection failed")
-	}
-	return collection
 }
 
 // ClientMsgProcessor is responsible for listening and processing requests from clients
