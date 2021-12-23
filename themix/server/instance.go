@@ -435,7 +435,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				if inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] > inst.f &&
 					((inst.numAuxZero[inst.round] != 0 && inst.numBvalZero[inst.round] > inst.f) ||
 						(inst.numAuxOne[inst.round] != 0 && inst.numBvalOne[inst.round] > inst.f)) {
+					inst.lock.Lock()
 					inst.isReadyToSendCoin()
+					inst.lock.Unlock()
 				}
 			}()
 		}
