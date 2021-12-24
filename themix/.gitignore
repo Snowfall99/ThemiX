@@ -8,3 +8,6 @@ main
 client
 helper/__pycache__/*
 address
+./vscode
+client.sh
+single.sh

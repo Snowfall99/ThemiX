@@ -38,6 +38,7 @@ type asyncCommSubset struct {
 	proposer      *Proposer
 	reqc          chan *consmsgpb.WholeMessage
 	lock          sync.Mutex
+	isFinished    bool
 }
 
 func initACS(st *state,
@@ -49,14 +50,15 @@ func initACS(st *state,
 	seq uint64, n uint64,
 	reqc chan *consmsgpb.WholeMessage) *asyncCommSubset {
 	re := &asyncCommSubset{
-		st:        st,
-		lg:        lg,
-		proposer:  proposer,
-		n:         n,
-		sequence:  seq,
-		instances: make([]*instance, n),
-		reqc:      reqc,
-		lock:      sync.Mutex{},
+		st:         st,
+		lg:         lg,
+		proposer:   proposer,
+		n:          n,
+		sequence:   seq,
+		instances:  make([]*instance, n),
+		reqc:       reqc,
+		isFinished: false,
+		lock:       sync.Mutex{},
 	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
@@ -66,6 +68,9 @@ func initACS(st *state,
 }
 
 func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
+	// if !acs.isFinished {
+	// 	return
+	// }
 	isDecided, isFinished := acs.instances[msg.ConsMsg.Proposer].insertMsg(msg)
 	if isDecided {
 		acs.lock.Lock()
@@ -117,14 +122,22 @@ func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 						zap.Int("seq", int(inst.sequence)))
 				}
 			}
+			acs.isFinished = true
 		}
 	} else if isFinished {
-		// acs.lock.Lock()
-		// defer acs.lock.Unlock()
+		acs.lock.Lock()
+		defer acs.lock.Unlock()
 
-		// acs.numFinished++
-		// if acs.numFinished == acs.n {
-		// 	acs.st.garbageCollect(acs.sequence)
-		// }
+		acs.numFinished++
+		if acs.isFinished {
+			acs.clearInstance()
+			acs.st.garbageCollect(acs.sequence)
+		}
+	}
+}
+
+func (acs *asyncCommSubset) clearInstance() {
+	for i := info.IDType(0); i < info.IDType(acs.n); i++ {
+		acs.instances[i] = &instance{isFinished: true}
 	}
 }
