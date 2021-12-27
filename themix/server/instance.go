@@ -143,6 +143,10 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	inst.lock.Lock()
 	defer inst.lock.Unlock()
 
+	if inst.isFinished {
+		return false, false
+	}
+
 	if len(msg.ConsMsg.Content) > 0 {
 		inst.lg.Info("receive msg",
 			zap.String("type", consmsgpb.MessageType_name[int32(msg.ConsMsg.Type)]),
@@ -158,10 +162,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			zap.Int("seq", int(msg.ConsMsg.Sequence)),
 			zap.Int("round", int(msg.ConsMsg.Round)),
 			zap.Int("from", int(msg.From)))
-	}
-
-	if inst.isFinished {
-		return false, false
 	}
 
 	switch msg.ConsMsg.Type {
