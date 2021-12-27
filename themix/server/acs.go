@@ -39,6 +39,7 @@ type asyncCommSubset struct {
 	reqc          chan *consmsgpb.WholeMessage
 	lock          sync.Mutex
 	isFinished    bool
+	isCollected   bool
 }
 
 func initACS(st *state,
@@ -129,7 +130,8 @@ func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
 		defer acs.lock.Unlock()
 
 		acs.numFinished++
-		if acs.isFinished {
+		if acs.isFinished && !acs.isCollected {
+			acs.isCollected = true
 			acs.clearInstance()
 			acs.st.garbageCollect(acs.sequence)
 		}
