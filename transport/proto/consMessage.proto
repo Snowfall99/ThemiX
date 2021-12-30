@@ -42,6 +42,7 @@ message ConsMessage {
     uint32 round = 3;
     uint64 sequence = 4;
     bytes content = 5;
+    bool single = 6;
 }
 
 message Request {
