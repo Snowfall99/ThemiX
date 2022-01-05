@@ -72,21 +72,27 @@ type instance struct {
 	numAuxOne          []uint64
 	numOneSkip         []uint64
 	numZeroSkip        []uint64
-	numCon             []uint64
 	numCoin            []uint64
 	echoSigns          *consmsgpb.Collections
 	readySigns         *consmsgpb.Collections
 	proposal           *consmsgpb.WholeMessage
 	valMsgs            []*consmsgpb.WholeMessage
+	singleAuxZero      []bool
+	singleAuxOne       []bool
+	promiseZero        []bool
+	promiseOne         []bool
 	bvalZeroSigns      []*consmsgpb.Collections
 	bvalOneSigns       []*consmsgpb.Collections
 	auxZeroSigns       []*consmsgpb.Collections
 	auxOneSigns        []*consmsgpb.Collections
 	coinMsgs           [][]*consmsgpb.WholeMessage
 	startR             bool
+	expireR            bool
 	startB             []bool
 	startS             []bool
 	expireB            []bool
+	delta              int64
+	deltaBar           int64
 	priv               *ecdsa.PrivateKey
 	lg                 *zap.Logger
 	lock               sync.Mutex
@@ -103,6 +109,8 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		n:             n,
 		thld:          thld,
 		f:             n / 2,
+		delta:         2,
+		deltaBar:      2,
 		echoSigns:     &consmsgpb.Collections{Collections: make([][]byte, n)},
 		readySigns:    &consmsgpb.Collections{Collections: make([][]byte, n)},
 		sin:           make([]bool, maxround),
@@ -110,6 +118,10 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		startB:        make([]bool, maxround),
 		startS:        make([]bool, maxround),
 		expireB:       make([]bool, maxround),
+		singleAuxZero: make([]bool, maxround),
+		singleAuxOne:  make([]bool, maxround),
+		promiseZero:   make([]bool, maxround),
+		promiseOne:    make([]bool, maxround),
 		valMsgs:       make([]*consmsgpb.WholeMessage, n),
 		bvalZeroSigns: make([]*consmsgpb.Collections, maxround),
 		bvalOneSigns:  make([]*consmsgpb.Collections, maxround),
@@ -120,7 +132,6 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		numBvalOne:    make([]uint64, maxround),
 		numAuxZero:    make([]uint64, maxround),
 		numAuxOne:     make([]uint64, maxround),
-		numCon:        make([]uint64, maxround),
 		numCoin:       make([]uint64, maxround),
 		numZeroSkip:   make([]uint64, maxround),
 		numOneSkip:    make([]uint64, maxround),
@@ -128,6 +139,8 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
 	inst.priv, _ = myecdsa.LoadKey(pkPath)
 	for i := 0; i < maxround; i++ {
+		inst.singleAuxZero[i] = true
+		inst.singleAuxOne[i] = true
 		inst.bvalZeroSigns[i] = &consmsgpb.Collections{Collections: make([][]byte, n)}
 		inst.bvalOneSigns[i] = &consmsgpb.Collections{Collections: make([][]byte, n)}
 		inst.auxZeroSigns[i] = &consmsgpb.Collections{Collections: make([][]byte, n)}
@@ -189,8 +202,10 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			}
 			inst.tp.Broadcast(m)
 		}
-		if (inst.numReady >= inst.thld && inst.proposal != nil && !inst.hasVotedOne) ||
-			(inst.numEcho >= inst.fastgroup && inst.proposal != nil && !inst.hasVotedOne) {
+		if (inst.round == 0 && inst.numReady >= inst.thld && inst.proposal != nil && !inst.hasVotedOne &&
+			!inst.promiseZero[inst.round]) ||
+			(inst.round == 0 && inst.numEcho >= inst.fastgroup && inst.proposal != nil && !inst.hasVotedOne &&
+				!inst.promiseZero[inst.round]) {
 			inst.hasVotedOne = true
 			inst.fastRBC = true
 			m := &consmsgpb.WholeMessage{
@@ -216,7 +231,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.numEcho >= inst.f+1 && !inst.startR {
 			inst.startR = true
 			go func() {
-				time.Sleep(2 * time.Second)
+				time.Sleep(time.Duration(inst.delta) * time.Second)
+				inst.expireR = true
 				if inst.numEcho >= inst.f+1 {
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
@@ -244,7 +260,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				}
 				inst.tp.Broadcast(m)
 			}
-			if !inst.hasVotedOne && inst.proposal != nil {
+			if inst.round == 0 && !inst.hasVotedOne && inst.proposal != nil &&
+				!inst.promiseZero[inst.round] {
 				inst.hasVotedOne = true
 				inst.fastRBC = true
 				inst.lg.Info("fast rbc")
@@ -281,7 +298,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				}
 				inst.tp.Broadcast(m)
 			}
-			if !inst.hasVotedOne && inst.proposal != nil {
+			if inst.round == 0 && !inst.hasVotedOne && inst.proposal != nil &&
+				!inst.promiseZero[inst.round] {
 				inst.fastRBC = true
 				inst.hasVotedOne = true
 				m := &consmsgpb.WholeMessage{
@@ -306,8 +324,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			inst.numBvalOne[msg.ConsMsg.Round]++
 			inst.bvalOneSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
 		}
-		if inst.round == msg.ConsMsg.Round && !inst.hasVotedZero && inst.numBvalZero[inst.round] > inst.f {
-			inst.hasVotedZero = true
+		if inst.round == msg.ConsMsg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
 			collection := serialCollection(inst.bvalZeroSigns[msg.ConsMsg.Round])
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
@@ -319,11 +336,12 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				Collection: collection,
 			}
 			inst.tp.Broadcast(m)
-		}
-		if inst.round == msg.ConsMsg.Round && !inst.zeroEndorsed && inst.numBvalZero[inst.round] >= inst.thld {
 			inst.zeroEndorsed = true
 			if !inst.hasSentAux {
 				inst.hasSentAux = true
+				if !inst.hasVotedOne {
+					inst.promiseZero[inst.round] = true
+				}
 				m := &consmsgpb.WholeMessage{
 					ConsMsg: &consmsgpb.ConsMessage{
 						Type:     consmsgpb.MessageType_AUX,
@@ -331,6 +349,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Round:    inst.round,
 						Sequence: msg.ConsMsg.Sequence,
 						Content:  []byte{0}, // aux 0
+						Single:   inst.promiseZero[inst.round],
 					},
 				}
 				inst.tp.Broadcast(m)
@@ -338,8 +357,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			inst.isReadyToSendCoin()
 			b = true
 		}
-		if inst.round == msg.ConsMsg.Round && !inst.hasVotedOne && inst.numBvalOne[inst.round] > inst.f {
-			inst.hasVotedOne = true
+		if inst.round == msg.ConsMsg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
 			collection := serialCollection(inst.bvalOneSigns[msg.ConsMsg.Round])
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
@@ -351,11 +369,12 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				Collection: collection,
 			}
 			inst.tp.Broadcast(m)
-		}
-		if inst.round == msg.ConsMsg.Round && !inst.oneEndorsed && inst.numBvalOne[inst.round] >= inst.thld {
 			inst.oneEndorsed = true
 			if !inst.hasSentAux {
 				inst.hasSentAux = true
+				if !inst.hasVotedZero {
+					inst.promiseOne[inst.round] = true
+				}
 				m := &consmsgpb.WholeMessage{
 					ConsMsg: &consmsgpb.ConsMessage{
 						Type:     consmsgpb.MessageType_AUX,
@@ -363,9 +382,16 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 						Round:    inst.round,
 						Sequence: msg.ConsMsg.Sequence,
 						Content:  []byte{1}, // aux 1
+						Single:   inst.promiseOne[inst.round],
 					},
 				}
 				inst.tp.Broadcast(m)
+				inst.lg.Info("send AUX",
+					zap.Int("proposer", int(msg.ConsMsg.Proposer)),
+					zap.Int("round", int(msg.ConsMsg.Round)),
+					zap.Int("seq", int(msg.ConsMsg.Sequence)),
+					zap.Bool("single", m.ConsMsg.Single),
+				)
 			}
 			inst.isReadyToSendCoin()
 			b = true
@@ -374,7 +400,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			if !inst.startS[inst.round] {
 				inst.startS[inst.round] = true
 				go func() {
-					time.Sleep(2 * time.Second)
+					time.Sleep(time.Duration(inst.delta) * time.Second)
 					inst.lg.Info("Can skip coin is false",
 						zap.Int("sequence", int(inst.sequence)),
 						zap.Int("round", int(inst.round)),
@@ -389,7 +415,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			case 0:
 				if inst.numBvalZero[msg.ConsMsg.Round] >= inst.f+1 && inst.lastCoin == 0 &&
 					(!inst.hasVotedZero || !inst.hasSentAux) &&
-					!inst.sin[msg.ConsMsg.Round] {
+					!inst.sin[msg.ConsMsg.Round] &&
+					!inst.promiseOne[inst.round] {
 					inst.hasVotedZero = true
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
@@ -404,7 +431,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			case 1:
 				if inst.numBvalOne[msg.ConsMsg.Round] >= inst.f+1 && inst.lastCoin == 1 &&
 					(!inst.hasVotedOne || !inst.hasSentAux) &&
-					!inst.sin[msg.ConsMsg.Round] {
+					!inst.sin[msg.ConsMsg.Round] &&
+					!inst.promiseZero[inst.round] {
 					inst.hasVotedOne = true
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
@@ -423,14 +451,22 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		case 0:
 			inst.numAuxZero[msg.ConsMsg.Round]++
 			inst.auxZeroSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
+			inst.singleAuxOne[msg.ConsMsg.Round] = false
+			if !msg.ConsMsg.Single {
+				inst.singleAuxZero[msg.ConsMsg.Round] = false
+			}
 		case 1:
 			inst.numAuxOne[msg.ConsMsg.Round]++
 			inst.auxOneSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
+			inst.singleAuxZero[msg.ConsMsg.Round] = false
+			if !msg.ConsMsg.Single {
+				inst.singleAuxOne[msg.ConsMsg.Round] = false
+			}
 		}
 		if inst.round == msg.ConsMsg.Round && inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld && !inst.startB[inst.round] {
 			inst.startB[inst.round] = true
 			go func() {
-				time.Sleep(4 * time.Second)
+				time.Sleep((time.Duration(inst.delta + inst.deltaBar)) * time.Second)
 				inst.expireB[inst.round] = true
 				if inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] > inst.f &&
 					((inst.numAuxZero[inst.round] != 0 && inst.numBvalZero[inst.round] > inst.f) ||
@@ -500,7 +536,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.round == msg.ConsMsg.Round+1 {
 			switch msg.ConsMsg.Content[0] {
 			case 0:
-				if (!inst.hasVotedZero || !inst.hasSentAux) && inst.numAuxZero[msg.ConsMsg.Round] >= inst.fastgroup {
+				if (!inst.hasVotedZero || !inst.hasSentAux) &&
+					inst.numAuxZero[msg.ConsMsg.Round] >= inst.fastgroup &&
+					!inst.promiseOne[inst.round] {
 					inst.hasVotedZero = true
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
@@ -513,7 +551,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					})
 				}
 			case 1:
-				if (!inst.hasVotedOne || !inst.hasSentAux) && inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup {
+				if (!inst.hasVotedOne || !inst.hasSentAux) &&
+					inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup &&
+					!inst.promiseZero[inst.round] {
 					inst.hasVotedOne = true
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
 						ConsMsg: &consmsgpb.ConsMessage{
@@ -556,16 +596,18 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		inst.fastRBC = true
 		inst.tp.Broadcast(msg)
-		inst.hasVotedOne = true
-		m := &consmsgpb.WholeMessage{
-			ConsMsg: &consmsgpb.ConsMessage{
-				Type:     consmsgpb.MessageType_BVAL,
-				Proposer: msg.ConsMsg.Proposer,
-				Sequence: msg.ConsMsg.Sequence,
-				Content:  []byte{1}, // vote 1
-			},
+		if !inst.promiseZero[inst.round] {
+			inst.hasVotedOne = true
+			m := &consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_BVAL,
+					Proposer: msg.ConsMsg.Proposer,
+					Sequence: msg.ConsMsg.Sequence,
+					Content:  []byte{1}, // vote 1
+				},
+			}
+			inst.tp.Broadcast(m)
 		}
-		inst.tp.Broadcast(m)
 		return inst.isReadyToEnterNewRound()
 	case consmsgpb.MessageType_READY_COLLECTION:
 		if inst.fastRBC || inst.hasVotedOne || inst.hash == nil || inst.round != 0 {
@@ -576,16 +618,18 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		inst.fastRBC = true
 		inst.tp.Broadcast(msg)
-		inst.hasVotedOne = true
-		m := &consmsgpb.WholeMessage{
-			ConsMsg: &consmsgpb.ConsMessage{
-				Type:     consmsgpb.MessageType_BVAL,
-				Proposer: msg.ConsMsg.Proposer,
-				Sequence: msg.ConsMsg.Sequence,
-				Content:  []byte{1}, // vote 1
-			},
+		if !inst.promiseZero[inst.round] {
+			inst.hasVotedOne = true
+			m := &consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_BVAL,
+					Proposer: msg.ConsMsg.Proposer,
+					Sequence: msg.ConsMsg.Sequence,
+					Content:  []byte{1}, // vote 1
+				},
+			}
+			inst.tp.Broadcast(m)
 		}
-		inst.tp.Broadcast(m)
 		return inst.isReadyToEnterNewRound()
 	case consmsgpb.MessageType_BVAL_ZERO_COLLECTION:
 		if inst.zeroEndorsed || inst.oneEndorsed || inst.hasSentAux || inst.round != msg.ConsMsg.Round {
@@ -598,6 +642,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.tp.Broadcast(msg)
 		if !inst.hasSentAux {
 			inst.hasSentAux = true
+			if !inst.hasVotedOne {
+				inst.promiseZero[inst.round] = true
+			}
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
 					Type:     consmsgpb.MessageType_AUX,
@@ -605,6 +652,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Round:    inst.round,
 					Sequence: msg.ConsMsg.Sequence,
 					Content:  []byte{0}, // aux 0
+					Single:   inst.promiseZero[inst.round],
 				},
 			}
 			inst.tp.Broadcast(m)
@@ -622,6 +670,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.tp.Broadcast(msg)
 		if !inst.hasSentAux {
 			inst.hasSentAux = true
+			if !inst.hasVotedZero {
+				inst.promiseOne[inst.round] = true
+			}
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
 					Type:     consmsgpb.MessageType_AUX,
@@ -629,6 +680,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Round:    inst.round,
 					Sequence: msg.ConsMsg.Sequence,
 					Content:  []byte{1}, // aux 1
+					Single:   inst.promiseOne[inst.round],
 				},
 			}
 			inst.tp.Broadcast(m)
@@ -737,11 +789,58 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 		((inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld) ||
 			(inst.zeroEndorsed && inst.numAuxZero[inst.round] >= inst.thld) ||
 			(inst.oneEndorsed && inst.zeroEndorsed)) {
+		singleCONOne := 0
+		singleCONZero := 0
 		sigShares := make([][]byte, 0)
 		for _, m := range inst.coinMsgs[inst.round] {
 			if m != nil {
 				sigShares = append(sigShares, m.ConsMsg.Content)
 			}
+			if m != nil && m.ConsMsg.Single && m.ConsMsg.BinVals[0] == 1 {
+				singleCONOne++
+			} else if m != nil && m.ConsMsg.Single && m.ConsMsg.BinVals[0] == 0 {
+				singleCONZero++
+			}
+		}
+		if (singleCONOne >= int(inst.thld) && inst.proposal != nil) ||
+			(singleCONZero >= int(inst.thld) && inst.id == inst.proposer && inst.proposal != nil) ||
+			(singleCONZero >= int(inst.thld) && inst.id != inst.proposer) {
+			if inst.isDecided {
+				inst.isFinished = true
+				return false, true
+			}
+			// TODO(chenzx): need to compare with coin and return in this round
+			inst.isDecided = true
+			if singleCONOne >= int(inst.thld) {
+				inst.binVals = 1
+			} else {
+				inst.binVals = 0
+			}
+			nextVote := inst.binVals
+			if nextVote == 0 {
+				inst.hasVotedZero = true
+				inst.hasVotedOne = false
+			} else {
+				inst.hasVotedZero = false
+				inst.hasVotedOne = true
+			}
+			inst.hasSentAux = false
+			inst.hasSentCoin = false
+			inst.zeroEndorsed = false
+			inst.oneEndorsed = false
+			inst.fastAuxZero = false
+			inst.fastAuxOne = false
+			inst.round++
+			inst.tp.Broadcast(&consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_BVAL,
+					Proposer: inst.id,
+					Round:    inst.round,
+					Sequence: inst.sequence,
+					Content:  []byte{nextVote},
+				},
+			})
+			return true, false
 		}
 		if len(sigShares) < int(inst.thld) {
 			return false, false
@@ -801,7 +900,9 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 
 // must be executed within inst.lock
 func (inst *instance) isReadyToSendCoin() {
-	if !inst.hasSentCoin && inst.expireB[inst.round] {
+	if !inst.hasSentCoin &&
+		(inst.expireB[inst.round] ||
+			((inst.numOneSkip[inst.round] >= inst.fastgroup || inst.numZeroSkip[inst.round] >= inst.fastgroup) && inst.expireR)) {
 		if !inst.isDecided {
 			if inst.oneEndorsed && inst.numAuxOne[inst.round] >= inst.thld {
 				inst.binVals = 1
@@ -827,9 +928,11 @@ func (inst *instance) isReadyToSendCoin() {
 			zap.Int("numAuxOne", int(inst.numAuxOne[inst.round])),
 			zap.Bool("startB", inst.startB[inst.round]),
 			zap.Bool("startS", inst.startS[inst.round]),
+			zap.Bool("single", inst.singleAuxZero[inst.round] || inst.singleAuxOne[inst.round]),
 			zap.Int("numSkipOne", int(inst.numOneSkip[inst.round])),
 			zap.Int("numSkipZero", int(inst.numZeroSkip[inst.round])))
 
+		single := inst.singleAuxZero[inst.round] || inst.singleAuxOne[inst.round]
 		inst.hasSentCoin = true
 		inst.tp.Broadcast(&consmsgpb.WholeMessage{
 			ConsMsg: &consmsgpb.ConsMessage{
@@ -838,6 +941,8 @@ func (inst *instance) isReadyToSendCoin() {
 				Round:    inst.round,
 				Sequence: inst.sequence,
 				Content:  inst.blsSig.Sign(inst.getCoinInfo()),
+				Single:   single,
+				BinVals:  []byte{inst.binVals},
 			},
 		},
 		) // threshold bls sig share
