@@ -66,6 +66,9 @@ func initACS(st *state,
 }
 
 func (acs *asyncCommSubset) insertMsg(msg *consmsgpb.WholeMessage) {
+	if acs.isFinished {
+		return
+	}
 	isDecided, isFinished := acs.instances[msg.ConsMsg.Proposer].insertMsg(msg)
 	if isDecided {
 		acs.lock.Lock()
