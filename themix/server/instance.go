@@ -738,13 +738,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 }
 
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
-	if (inst.numOneSkip[inst.round] >= inst.fastgroup && inst.proposal != nil) ||
+	if !inst.isDecided && ((inst.numOneSkip[inst.round] >= inst.fastgroup && inst.proposal != nil) ||
 		(inst.numZeroSkip[inst.round] >= inst.fastgroup && inst.id == inst.proposer && inst.proposal != nil) ||
-		(inst.numZeroSkip[inst.round] >= inst.fastgroup && inst.id != inst.proposer) {
-		if inst.isDecided {
-			inst.isFinished = true
-			return false, true
-		}
+		(inst.numZeroSkip[inst.round] >= inst.fastgroup && inst.id != inst.proposer)) {
 		if inst.numOneSkip[inst.round] >= inst.fastgroup {
 			inst.binVals = 1
 			inst.isDecided = true
@@ -802,13 +798,9 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 				singleCONZero++
 			}
 		}
-		if (singleCONOne >= int(inst.thld) && inst.proposal != nil) ||
+		if !inst.isDecided && ((singleCONOne >= int(inst.thld) && inst.proposal != nil) ||
 			(singleCONZero >= int(inst.thld) && inst.id == inst.proposer && inst.proposal != nil) ||
-			(singleCONZero >= int(inst.thld) && inst.id != inst.proposer) {
-			if inst.isDecided {
-				inst.isFinished = true
-				return false, true
-			}
+			(singleCONZero >= int(inst.thld) && inst.id != inst.proposer)) {
 			// TODO(chenzx): need to compare with coin and return in this round
 			inst.isDecided = true
 			if singleCONOne >= int(inst.thld) {
@@ -1081,7 +1073,7 @@ func (inst *instance) verifyREADYCollection(msg *consmsgpb.WholeMessage) bool {
 		if len(sign) == 0 || inst.readySigns.Collections[i] != nil {
 			continue
 		}
-		// TODO: should store public key information in consensus layer
+		// TODO(chenzx): should store public key information in consensus layer
 		if !verify(content, sign, inst.priv) {
 			return false
 		}
