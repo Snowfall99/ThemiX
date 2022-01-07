@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/perlin-network/noise"
 	myecdsa "go.themix.io/crypto/ecdsa"
@@ -136,6 +137,7 @@ func (tp *HTTPTransport) SendMessage(id uint32, msg *consmsgpb.WholeMessage) {
 		if err == nil {
 			return
 		} else {
+			time.Sleep(1 * time.Second)
 			fmt.Println("err", err.Error())
 		}
 		err = tp.node.SendMessage(context.TODO(), tp.Peers[id].Addr, m)
