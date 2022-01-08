@@ -268,7 +268,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
 				inst.hasVotedOne[inst.round] = true
 				inst.fastRBC = true
-				inst.lg.Info("fast rbc")
 				m := &consmsgpb.WholeMessage{
 					ConsMsg: &consmsgpb.ConsMessage{
 						Type:     consmsgpb.MessageType_BVAL,
@@ -390,12 +389,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					},
 				}
 				inst.tp.Broadcast(m)
-				inst.lg.Info("send AUX",
-					zap.Int("proposer", int(msg.ConsMsg.Proposer)),
-					zap.Int("round", int(msg.ConsMsg.Round)),
-					zap.Int("seq", int(msg.ConsMsg.Sequence)),
-					zap.Bool("single", m.ConsMsg.Single),
-				)
 			}
 			inst.isReadyToSendCoin()
 			b = true
@@ -405,10 +398,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				inst.startS[msg.ConsMsg.Round] = true
 				go func() {
 					time.Sleep(time.Duration(inst.delta) * time.Second)
-					inst.lg.Info("Can skip coin is false",
-						zap.Int("sequence", int(inst.sequence)),
-						zap.Int("round", int(msg.ConsMsg.Round)),
-						zap.Int("proposer", int(msg.ConsMsg.Proposer)))
 					inst.canSkipCoin[msg.ConsMsg.Round] = false
 				}()
 			}
@@ -668,10 +657,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				inst.startS[msg.ConsMsg.Round] = true
 				go func() {
 					time.Sleep(time.Duration(inst.delta) * time.Second)
-					inst.lg.Info("Can skip coin is false",
-						zap.Int("sequence", int(inst.sequence)),
-						zap.Int("round", int(msg.ConsMsg.Round)),
-						zap.Int("proposer", int(msg.ConsMsg.Proposer)))
 					inst.canSkipCoin[msg.ConsMsg.Round] = false
 				}()
 			}
@@ -707,10 +692,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 				inst.startS[msg.ConsMsg.Round] = true
 				go func() {
 					time.Sleep(time.Duration(inst.delta) * time.Second)
-					inst.lg.Info("Can skip coin is false",
-						zap.Int("sequence", int(inst.sequence)),
-						zap.Int("round", int(msg.ConsMsg.Round)),
-						zap.Int("proposer", int(msg.ConsMsg.Proposer)))
 					inst.canSkipCoin[msg.ConsMsg.Round] = false
 				}()
 			}
