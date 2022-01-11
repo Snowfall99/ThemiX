@@ -109,8 +109,8 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		n:             n,
 		thld:          thld,
 		f:             n / 2,
-		delta:         2,
-		deltaBar:      2,
+		delta:         500,
+		deltaBar:      2500,
 		echoSigns:     &consmsgpb.Collections{Collections: make([][]byte, n)},
 		readySigns:    &consmsgpb.Collections{Collections: make([][]byte, n)},
 		hasSentAux:    make([]bool, maxround),
@@ -235,7 +235,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.numEcho >= inst.f+1 && !inst.startR {
 			inst.startR = true
 			go func() {
-				time.Sleep(time.Duration(inst.delta) * time.Second)
+				time.Sleep(time.Duration(inst.delta) * time.Millisecond)
 				inst.expireR = true
 				if inst.numEcho >= inst.f+1 {
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
@@ -397,7 +397,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			if !inst.startS[msg.ConsMsg.Round] {
 				inst.startS[msg.ConsMsg.Round] = true
 				go func() {
-					time.Sleep(time.Duration(inst.delta) * time.Second)
+					time.Sleep(time.Duration(inst.delta) * time.Millisecond)
 					inst.canSkipCoin[msg.ConsMsg.Round] = false
 				}()
 			}
@@ -459,7 +459,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.round == msg.ConsMsg.Round && inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld && !inst.startB[inst.round] {
 			inst.startB[inst.round] = true
 			go func() {
-				time.Sleep((time.Duration(inst.delta + inst.deltaBar)) * time.Second)
+				time.Sleep((time.Duration(inst.delta + inst.deltaBar)) * time.Millisecond)
 				inst.expireB[inst.round] = true
 				if inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] > inst.f &&
 					((inst.numAuxZero[inst.round] != 0 && inst.numBvalZero[inst.round] > inst.f) ||
@@ -656,7 +656,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			if !inst.startS[msg.ConsMsg.Round] {
 				inst.startS[msg.ConsMsg.Round] = true
 				go func() {
-					time.Sleep(time.Duration(inst.delta) * time.Second)
+					time.Sleep(time.Duration(inst.delta) * time.Millisecond)
 					inst.canSkipCoin[msg.ConsMsg.Round] = false
 				}()
 			}
@@ -691,7 +691,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 			if !inst.startS[msg.ConsMsg.Round] {
 				inst.startS[msg.ConsMsg.Round] = true
 				go func() {
-					time.Sleep(time.Duration(inst.delta) * time.Second)
+					time.Sleep(time.Duration(inst.delta) * time.Millisecond)
 					inst.canSkipCoin[msg.ConsMsg.Round] = false
 				}()
 			}
