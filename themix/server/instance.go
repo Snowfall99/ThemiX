@@ -235,7 +235,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		if inst.numEcho >= inst.f+1 && !inst.startR {
 			inst.startR = true
 			go func() {
-				time.Sleep(time.Duration(inst.delta) * time.Millisecond)
+				time.Sleep(time.Duration(inst.deltaBar) * time.Millisecond)
 				inst.expireR = true
 				if inst.numEcho >= inst.f+1 {
 					inst.tp.Broadcast(&consmsgpb.WholeMessage{
