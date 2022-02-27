@@ -16,12 +16,16 @@ package server
 
 import (
 	"crypto/ecdsa"
+	"log"
 	"sync"
 
+	"go.themix.io/client/proto/clientpb"
 	myecdsa "go.themix.io/crypto/ecdsa"
+	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport"
 	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 // Proposer is responsible for proposing requests
@@ -33,10 +37,12 @@ type Proposer struct {
 	id   uint32
 	lock sync.Mutex
 	priv *ecdsa.PrivateKey
+	ck   *ecdsa.PrivateKey
+	sign bool
 }
 
-func initProposer(lg *zap.Logger, tp transport.Transport, id uint32, reqc chan []byte, pkPath string) *Proposer {
-	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}}
+func initProposer(lg *zap.Logger, tp transport.Transport, id uint32, reqc chan []byte, pkPath string, ck *ecdsa.PrivateKey, sign bool) *Proposer {
+	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}, ck: ck, sign: sign}
 	proposer.priv, _ = myecdsa.LoadKey(pkPath)
 	go proposer.run()
 	return proposer
@@ -55,12 +61,22 @@ func (proposer *Proposer) run() {
 	var req []byte
 	for {
 		req = <-proposer.reqc
-		proposer.propose(req)
+		go proposer.propose(req)
 	}
 }
 
 // Propose broadcast a propose consmsgpb with the given request and the current sequence number
 func (proposer *Proposer) propose(request []byte) {
+	if proposer.sign {
+		clientMessages := &clientpb.ClientMessages{}
+		err := proto.Unmarshal(request, clientMessages)
+		if err != nil {
+			log.Fatal("[propose] proto.Unmarshal: ", err)
+		}
+		if !proposer.verifyClientMessages(clientMessages) {
+			log.Fatal("[propose] verifyClientSign fail")
+		}
+	}
 	msg := &consmsgpb.WholeMessage{
 		ConsMsg: &consmsgpb.ConsMessage{
 			Type:     consmsgpb.MessageType_VAL,
@@ -80,4 +96,34 @@ func (proposer *Proposer) propose(request []byte) {
 
 	proposer.seq++
 	proposer.tp.Broadcast(msg)
+}
+
+func (proposer *Proposer) verifyClientMessages(clientMessages *clientpb.ClientMessages) bool {
+	ch := make(chan bool)
+	defer close(ch)
+
+	for _, payload := range clientMessages.Payload {
+		payload := payload
+		go proposer.verifyClientMessage(payload, ch)
+	}
+	result := true
+	for i := 0; i < len(clientMessages.Payload); i++ {
+		b := <-ch
+		if !b {
+			result = b
+		}
+	}
+	return result
+}
+
+func (proposer *Proposer) verifyClientMessage(clientMessage *clientpb.ClientMessage, ch chan bool) {
+	hash, err := sha256.ComputeHash([]byte(clientMessage.Payload))
+	if err != nil {
+		log.Fatal("[verifyClientMessage] sha256.ComputeHash: ", err)
+	}
+	b, err := myecdsa.VerifyECDSA(&proposer.ck.PublicKey, clientMessage.Signature, hash)
+	if err != nil {
+		log.Fatal("[verifyClientMessage] myecdsa.VerifyECDSA: ", err)
+	}
+	ch <- b
 }
