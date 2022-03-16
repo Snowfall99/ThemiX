@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -29,19 +30,24 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
+	body := strings.NewReader(string(buffer))
 	// println("payload: ", len(buffer))
 	// println("test time: ", *testTime)
 	// println("batch size: ", *batchSize)
 	// println("payload size: ", *payloadSize)
 	// println("url: ", *url)
 
-	body := strings.NewReader(string(buffer))
-	req, err := http.NewRequest("POST", *url, body)
-	if err != nil {
-		panic(err)
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			MaxIdleConns:        200,
+			MaxIdleConnsPerHost: 200,
+			IdleConnTimeout:     time.Duration(60),
+		},
 	}
-	req.Header.Set("Content-Type", "application/x-protobuf")
 
 	file, err := os.OpenFile(*output, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0666)
 	if err != nil {
@@ -53,7 +59,12 @@ func main() {
 	endTime := time.Now()
 	oldTime := endTime
 	for endTime.Sub(startTime) < time.Duration(*testTime)*time.Second {
-		resp, err := http.DefaultClient.Do(req)
+		req, err := http.NewRequest("POST", *url, body)
+		if err != nil {
+			panic(err)
+		}
+		req.Header.Set("Content-Type", "application/x-protobuf")
+		resp, err := client.Do(req)
 		if err != nil {
 			panic(err)
 		}
