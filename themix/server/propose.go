@@ -66,17 +66,19 @@ func (proposer *Proposer) proceed(seq uint64) {
 
 func (proposer *Proposer) run() {
 	var req []byte
-	for i := 0; i < runtime.NumCPU()-1; i++ {
-		go func() {
-			for {
-				req := <-proposer.verifyReq
-				if proposer.verifyClientMessage(req) {
-					proposer.verifyResp <- 1
-				} else {
-					proposer.verifyResp <- 0
+	if proposer.sign {
+		for i := 0; i < runtime.NumCPU()-1; i++ {
+			go func() {
+				for {
+					req := <-proposer.verifyReq
+					if proposer.verifyClientMessage(req) {
+						proposer.verifyResp <- 1
+					} else {
+						proposer.verifyResp <- 0
+					}
 				}
-			}
-		}()
+			}()
+		}
 	}
 	for {
 		req = <-proposer.reqc
