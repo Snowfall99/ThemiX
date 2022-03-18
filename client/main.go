@@ -30,7 +30,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	body := strings.NewReader(string(buffer))
 	// println("payload: ", len(buffer))
 	// println("test time: ", *testTime)
 	// println("batch size: ", *batchSize)
@@ -59,6 +58,7 @@ func main() {
 	endTime := time.Now()
 	oldTime := endTime
 	for endTime.Sub(startTime) < time.Duration(*testTime)*time.Second {
+		body := strings.NewReader(string(buffer))
 		req, err := http.NewRequest("POST", *url, body)
 		if err != nil {
 			panic(err)
