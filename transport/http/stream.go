@@ -123,7 +123,9 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer, ck *ecdsa.
 	verifyReq := make(chan *clientpb.ClientMessage, clientCh)
 	verifyResp := make(chan int, clientCh)
 	rprocessor := &ClientMsgProcessor{lg: lg, id: id, reqc: reqc, repc: repc, sign: sign, ck: ck, verifyReqc: verifyReq, verifyRespc: verifyResp}
-	go rprocessor.run()
+	if sign {
+		go rprocessor.run()
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", http.NotFound)
 	mux.Handle(clientPrefix, rprocessor)
