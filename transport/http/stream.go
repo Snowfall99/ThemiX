@@ -22,11 +22,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/perlin-network/noise"
+	"go.themix.io/client/proto/clientpb"
 	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport/proto/consmsgpb"
@@ -37,6 +39,7 @@ import (
 var (
 	clientPrefix  = "/client"
 	streamBufSize = 40960 * 16
+	clientCh      = 4096 * 16
 )
 
 type Peer struct {
@@ -91,7 +94,7 @@ func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 
 // InitTransport executes transport layer initiliazation, which returns transport, a channel
 // for received ConsMessage, a channel for received requests, and a channel for reply
-func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTransport,
+func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer, ck *ecdsa.PrivateKey, sign bool) (*HTTPTransport,
 	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
 	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
 	tp := &HTTPTransport{id: id, Peers: make(map[uint32]*Peer), msgc: msgc}
@@ -117,7 +120,10 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer) (*HTTPTran
 	log.Printf("listening on %v\n", tp.node.Addr())
 	reqc := make(chan []byte, streamBufSize)
 	repc := make(chan []byte, streamBufSize)
-	rprocessor := &ClientMsgProcessor{lg: lg, id: id, reqc: reqc, repc: repc}
+	verifyReq := make(chan *clientpb.ClientMessage, clientCh)
+	verifyResp := make(chan int, clientCh)
+	rprocessor := &ClientMsgProcessor{lg: lg, id: id, reqc: reqc, repc: repc, sign: sign, ck: ck, verifyReqc: verifyReq, verifyRespc: verifyResp}
+	go rprocessor.run()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", http.NotFound)
 	mux.Handle(clientPrefix, rprocessor)
@@ -206,11 +212,30 @@ func Sign(msg *consmsgpb.WholeMessage, priv *ecdsa.PrivateKey) {
 
 // ClientMsgProcessor is responsible for listening and processing requests from clients
 type ClientMsgProcessor struct {
-	num  int
-	lg   *zap.Logger
-	id   uint32
-	reqc chan []byte
-	repc chan []byte
+	num         int
+	lg          *zap.Logger
+	id          uint32
+	reqc        chan []byte
+	repc        chan []byte
+	verifyReqc  chan *clientpb.ClientMessage
+	verifyRespc chan int
+	ck          *ecdsa.PrivateKey
+	sign        bool
+}
+
+func (cmsgProcessor *ClientMsgProcessor) run() {
+	for i := 0; i < 2*runtime.NumCPU(); i++ {
+		go func() {
+			for {
+				req := <-cmsgProcessor.verifyReqc
+				if cmsgProcessor.verifyClientMessage(req) {
+					cmsgProcessor.verifyRespc <- 1
+				} else {
+					cmsgProcessor.verifyRespc <- 0
+				}
+			}
+		}()
+	}
 }
 
 func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +256,26 @@ func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *htt
 			zap.Int("seq", cmsgProcessor.num),
 			zap.Int("content", int(v[0])))
 	}
+	if cmsgProcessor.sign && len(v) > 0 {
+		clientMessages := &clientpb.ClientMessages{}
+		err = proto.Unmarshal(v, clientMessages)
+		if err != nil {
+			log.Fatal("[propose] proto.Unmarshal: ", err)
+		}
+		for _, req := range clientMessages.Payload {
+			cmsgProcessor.verifyReqc <- req
+		}
+		result := true
+		for i := 0; i < len(clientMessages.Payload); i++ {
+			resp := <-cmsgProcessor.verifyRespc
+			if resp == 0 {
+				result = false
+			}
+		}
+		if !result {
+			log.Fatal("[propose] verify client signature failed")
+		}
+	}
 	cmsgProcessor.reqc <- v
 	rep := <-cmsgProcessor.repc
 	cmsgProcessor.lg.Info("reply request",
@@ -239,4 +284,16 @@ func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *htt
 		zap.Int("content", int(v[0])))
 	cmsgProcessor.num++
 	w.Write(rep)
+}
+
+func (cmsgProcessor *ClientMsgProcessor) verifyClientMessage(clientMessage *clientpb.ClientMessage) bool {
+	hash, err := sha256.ComputeHash([]byte(clientMessage.Payload))
+	if err != nil {
+		log.Fatal("[verifyClientMessage] sha256.ComputeHash: ", err)
+	}
+	b, err := myecdsa.VerifyECDSA(&cmsgProcessor.ck.PublicKey, clientMessage.Signature, hash)
+	if err != nil {
+		log.Fatal("[verifyClientMessage] myecdsa.VerifyECDSA: ", err)
+	}
+	return b
 }
