@@ -15,29 +15,32 @@
 package server
 
 import (
-	"crypto/ecdsa"
 	"sync"
 
-	myecdsa "go.themix.io/crypto/ecdsa"
+	"go.themix.io/client/proto/clientpb"
 	"go.themix.io/transport"
 	"go.themix.io/transport/proto/consmsgpb"
 	"go.uber.org/zap"
 )
 
+const channelSize = 4096 * 32
+
 // Proposer is responsible for proposing requests
 type Proposer struct {
-	lg   *zap.Logger
-	reqc chan []byte
-	tp   transport.Transport
-	seq  uint64
-	id   uint32
-	lock sync.Mutex
-	priv *ecdsa.PrivateKey
+	lg         *zap.Logger
+	reqc       chan []byte
+	verifyReq  chan *clientpb.ClientMessage
+	verifyResp chan int
+	tp         transport.Transport
+	seq        uint64
+	id         uint32
+	lock       sync.Mutex
 }
 
 func initProposer(lg *zap.Logger, tp transport.Transport, id uint32, reqc chan []byte, pkPath string) *Proposer {
 	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}}
-	proposer.priv, _ = myecdsa.LoadKey(pkPath)
+	proposer.verifyReq = make(chan *clientpb.ClientMessage, channelSize)
+	proposer.verifyResp = make(chan int, channelSize)
 	go proposer.run()
 	return proposer
 }
@@ -68,8 +71,8 @@ func (proposer *Proposer) propose(request []byte) {
 			Sequence: proposer.seq,
 			Content:  request,
 		},
-		From: proposer.id}
-
+		From: proposer.id,
+	}
 	if len(request) > 0 {
 		proposer.lg.Info("propose",
 			zap.Int("proposer", int(msg.ConsMsg.Proposer)),

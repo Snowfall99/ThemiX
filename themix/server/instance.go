@@ -15,6 +15,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"encoding/binary"
 	"log"
@@ -76,7 +77,7 @@ type instance struct {
 	echoSigns          *consmsgpb.Collections
 	readySigns         *consmsgpb.Collections
 	proposal           *consmsgpb.WholeMessage
-	valMsgs            []*consmsgpb.WholeMessage
+	valMsgs            [][]byte
 	singleAuxZero      []bool
 	singleAuxOne       []bool
 	promiseZero        []bool
@@ -127,7 +128,7 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		singleAuxOne:  make([]bool, maxround),
 		promiseZero:   make([]bool, maxround),
 		promiseOne:    make([]bool, maxround),
-		valMsgs:       make([]*consmsgpb.WholeMessage, n),
+		valMsgs:       make([][]byte, n),
 		bvalZeroSigns: make([]*consmsgpb.Collections, maxround),
 		bvalOneSigns:  make([]*consmsgpb.Collections, maxround),
 		auxZeroSigns:  make([]*consmsgpb.Collections, maxround),
@@ -197,15 +198,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 					Content:  hash,
 				}}
 			inst.tp.Broadcast(m)
-			m = &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_VAL_SIGN,
-					Proposer: msg.ConsMsg.Proposer,
-					Sequence: msg.ConsMsg.Sequence,
-				},
-				Signature: msg.Signature,
-			}
-			inst.tp.Broadcast(m)
 		}
 		if inst.round == 0 && ((inst.numReady >= inst.thld && inst.proposal != nil && !inst.hasVotedOne[inst.round]) ||
 			(inst.numEcho >= inst.fastgroup && inst.proposal != nil && !inst.hasVotedOne[inst.round])) &&
@@ -224,11 +216,27 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		inst.isReadyToSendCoin()
 		return inst.isReadyToEnterNewRound()
-	case consmsgpb.MessageType_VAL_SIGN:
-		inst.valMsgs[msg.From] = msg
 	case consmsgpb.MessageType_ECHO:
 		if inst.echoSigns.Collections[msg.From] != nil || inst.round != 0 {
 			return false, false
+		}
+		for _, digest := range inst.valMsgs {
+			if digest != nil && !bytes.Equal(digest, msg.ConsMsg.Content) {
+				return false, false
+			}
+		}
+		inst.valMsgs[msg.From] = msg.ConsMsg.Content
+		if !inst.hasEcho {
+			inst.hasEcho = true
+			m := &consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_ECHO,
+					Proposer: msg.ConsMsg.Proposer,
+					Sequence: msg.ConsMsg.Sequence,
+					Content:  msg.ConsMsg.Content,
+				},
+			}
+			inst.tp.Broadcast(m)
 		}
 		inst.numEcho++
 		inst.echoSigns.Collections[msg.From] = msg.Signature
@@ -593,7 +601,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		inst.fastRBC = true
 		inst.tp.Broadcast(msg)
-		if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
+		if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] && inst.proposal != nil {
 			inst.hasVotedOne[inst.round] = true
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
@@ -615,7 +623,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		}
 		inst.fastRBC = true
 		inst.tp.Broadcast(msg)
-		if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
+		if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] && inst.proposal != nil {
 			inst.hasVotedOne[inst.round] = true
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
@@ -1027,7 +1035,6 @@ func (inst *instance) verifyECHOCollection(msg *consmsgpb.WholeMessage) bool {
 	mc := &consmsgpb.ConsMessage{
 		Type:     consmsgpb.MessageType_ECHO,
 		Proposer: msg.ConsMsg.Proposer,
-		Round:    msg.ConsMsg.Round,
 		Sequence: msg.ConsMsg.Sequence,
 		Content:  hash,
 	}
@@ -1043,6 +1050,7 @@ func (inst *instance) verifyECHOCollection(msg *consmsgpb.WholeMessage) bool {
 		}
 		// TODO: should store public key information in consensus layer
 		if !verify(content, sign, inst.priv) {
+			log.Printf("echo collection verify failed: %v", sign[0])
 			return false
 		}
 		inst.numEcho++

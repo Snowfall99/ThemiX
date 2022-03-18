@@ -76,6 +76,8 @@ func main() {
 	pkPath := flag.String("pk", "pk", "the folder storing pk")
 	cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
 	batchsize := flag.Int("batch", 1, "the max batchsize")
+	ckPath := flag.String("ck", "../../../crypto", "relative path of ecdsa private key for client signature verification")
+	sign := flag.Bool("sign", true, "whether client message is signed or not")
 	// coordinator := flag.String("coordinator", "http://127.0.0.1:11300", "coordinator address")
 	// coordinator_port := flag.Int("cport", 12200, "coordinator port")
 	// clusterFile := flag.String("cluster-file", "address", "cluster members defined in the given file")
@@ -143,7 +145,10 @@ func main() {
 	// }
 	// defer conn.Close()
 
-	pk, _ := myecdsa.LoadKey(*pkPath)
+	pk, err := myecdsa.LoadKey(*pkPath)
+	if err != nil {
+		panic(fmt.Sprintf("[main] ecdsa.LoadKey: %v", err))
+	}
 	var peers []http.Peer
 	for i := 0; i < len(addrs); i++ {
 		peer := http.Peer{
@@ -153,8 +158,11 @@ func main() {
 		}
 		peers = append(peers, peer)
 	}
-
-	server.InitNode(lg, bls, *pkPath, uint32(*id), uint64(len(addrs)), *port, peers, *batchsize)
+	ck, err := myecdsa.LoadKey(*ckPath)
+	if err != nil {
+		panic(fmt.Sprintf("[main] ecdsa.LoadKey: %v", err))
+	}
+	server.InitNode(lg, bls, *pkPath, uint32(*id), uint64(len(addrs)), *port, peers, *batchsize, ck, *sign)
 
 	// time.Sleep(5 * time.Second)
 

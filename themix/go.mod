@@ -3,6 +3,7 @@ module go.themix.io/themix
 go 1.16
 
 require (
+	go.themix.io/client v0.0.0-00010101000000-000000000000
 	go.themix.io/crypto v0.0.0-00010101000000-000000000000
 	go.themix.io/transport v0.0.0-00010101000000-000000000000
 	go.uber.org/zap v1.16.0
@@ -12,3 +13,5 @@ require (
 replace go.themix.io/transport => ../transport
 
 replace go.themix.io/crypto => ../crypto
+
+replace go.themix.io/client => ../client

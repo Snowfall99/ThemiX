@@ -33,7 +33,6 @@ enum MessageType {
     BVAL_ONE_COLLECTION  = 11;
     AUX_ZERO_COLLECTION  = 12;
     AUX_ONE_COLLECTION   = 13;
-    VAL_SIGN             = 14;
 }
 
 message ConsMessage {
