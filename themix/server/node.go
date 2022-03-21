@@ -34,7 +34,7 @@ type Node struct {
 // InitNode initiate a node for processing messages
 func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pkPath string, id uint32, n uint64, port int, peers []http.Peer, batchsize int, ck *ecdsa.PrivateKey, sign bool) {
 
-	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, peers, ck, sign)
+	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, peers, ck, sign, batchsize)
 
 	proposer := initProposer(lg, tp, id, reqc, pkPath)
 

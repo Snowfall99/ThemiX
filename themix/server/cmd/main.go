@@ -75,7 +75,7 @@ func main() {
 	keys := flag.String("keys", "keys", "the folder sotring keys")
 	pkPath := flag.String("pk", "pk", "the folder storing pk")
 	cluster := flag.String("cluster", "http://127.0.0.1:11200", "cluster members seperated by comma")
-	batchsize := flag.Int("batch", 1, "the max batchsize")
+	batchsize := flag.Int("batch", 1, "how many times for a client signature being verified")
 	ckPath := flag.String("ck", "../../../crypto", "relative path of ecdsa private key for client signature verification")
 	sign := flag.Bool("sign", true, "whether client message is signed or not")
 	// coordinator := flag.String("coordinator", "http://127.0.0.1:11300", "coordinator address")
