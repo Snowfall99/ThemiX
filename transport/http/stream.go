@@ -50,12 +50,15 @@ type Peer struct {
 
 // HTTPTransport is responsible for message exchange among nodes
 type HTTPTransport struct {
-	id         uint32
-	node       *noise.Node
-	Peers      map[uint32]*Peer
-	PrivateKey ecdsa.PrivateKey
-	msgc       chan *consmsgpb.WholeMessage
-	proposal   [][]byte
+	id          uint32
+	node        *noise.Node
+	Peers       map[uint32]*Peer
+	PrivateKey  ecdsa.PrivateKey
+	msgc        chan *consmsgpb.WholeMessage
+	verifyReqc  chan *clientpb.ClientMessage
+	verifyRespc chan int
+	proposal    [][]byte
+	sign        bool
 }
 
 type NoiseMessage struct {
@@ -97,7 +100,9 @@ func (tp *HTTPTransport) Broadcast(msg *consmsgpb.WholeMessage) {
 func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer, ck *ecdsa.PrivateKey, sign bool) (*HTTPTransport,
 	chan *consmsgpb.WholeMessage, chan []byte, chan []byte) {
 	msgc := make(chan *consmsgpb.WholeMessage, streamBufSize)
-	tp := &HTTPTransport{id: id, Peers: make(map[uint32]*Peer), msgc: msgc}
+	verifyReq := make(chan *clientpb.ClientMessage, clientCh)
+	verifyResp := make(chan int, clientCh)
+	tp := &HTTPTransport{id: id, Peers: make(map[uint32]*Peer), msgc: msgc, verifyReqc: verifyReq, verifyRespc: verifyResp, sign: sign}
 	tp.proposal = make([][]byte, len(peers))
 	for i, p := range peers {
 		if index := uint32(i); index != id {
@@ -120,8 +125,6 @@ func InitTransport(lg *zap.Logger, id uint32, port int, peers []Peer, ck *ecdsa.
 	log.Printf("listening on %v\n", tp.node.Addr())
 	reqc := make(chan []byte, streamBufSize)
 	repc := make(chan []byte, streamBufSize)
-	verifyReq := make(chan *clientpb.ClientMessage, clientCh)
-	verifyResp := make(chan int, clientCh)
 	rprocessor := &ClientMsgProcessor{lg: lg, id: id, reqc: reqc, repc: repc, sign: sign, ck: ck, verifyReqc: verifyReq, verifyRespc: verifyResp}
 	if sign {
 		go rprocessor.run()
@@ -172,12 +175,36 @@ func (tp *HTTPTransport) OnReceiveMessage(msg *consmsgpb.WholeMessage) {
 	}
 	if msg.ConsMsg.Type == consmsgpb.MessageType_VAL || msg.ConsMsg.Type == consmsgpb.MessageType_ECHO ||
 		msg.ConsMsg.Type == consmsgpb.MessageType_BVAL || msg.ConsMsg.Type == consmsgpb.MessageType_AUX {
+		if msg.ConsMsg.Type == consmsgpb.MessageType_VAL && tp.sign {
+			if !verifyClientSign(msg.ConsMsg.Content, tp.verifyReqc, tp.verifyRespc) {
+				log.Fatal("[transport] verify VAL content signature fail")
+			}
+		}
 		if Verify(msg, tp.Peers[msg.From].PublicKey) {
 			tp.msgc <- msg
 		}
 		return
 	}
 	tp.msgc <- msg
+}
+
+func verifyClientSign(data []byte, reqc chan *clientpb.ClientMessage, respc chan int) bool {
+	clientMessages := &clientpb.ClientMessages{}
+	err := proto.Unmarshal(data, clientMessages)
+	if err != nil {
+		log.Fatal("proto.Unmarshal: ", err)
+	}
+	for _, req := range clientMessages.Payload {
+		reqc <- req
+	}
+	result := true
+	for i := 0; i < len(clientMessages.Payload); i++ {
+		resp := <-respc
+		if resp == 0 {
+			result = false
+		}
+	}
+	return result
 }
 
 func Verify(msg *consmsgpb.WholeMessage, pub *ecdsa.PrivateKey) bool {
@@ -259,23 +286,8 @@ func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *htt
 			zap.Int("content", int(v[0])))
 	}
 	if cmsgProcessor.sign && len(v) > 0 {
-		clientMessages := &clientpb.ClientMessages{}
-		err = proto.Unmarshal(v, clientMessages)
-		if err != nil {
-			log.Fatal("[propose] proto.Unmarshal: ", err)
-		}
-		for _, req := range clientMessages.Payload {
-			cmsgProcessor.verifyReqc <- req
-		}
-		result := true
-		for i := 0; i < len(clientMessages.Payload); i++ {
-			resp := <-cmsgProcessor.verifyRespc
-			if resp == 0 {
-				result = false
-			}
-		}
-		if !result {
-			log.Fatal("[propose] verify client signature failed")
+		if !verifyClientSign(v, cmsgProcessor.verifyReqc, cmsgProcessor.verifyRespc) {
+			log.Fatal("[transport] verify client signature failed")
 		}
 	}
 	cmsgProcessor.reqc <- v
