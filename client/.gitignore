@@ -1,9 +1,0 @@
-client
-client.cc
-client.log
-go.sum
-payload
-main
-.vscode/
-*.pb.cc
-*.pb.h

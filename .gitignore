@@ -1,2 +1,6 @@
 util/
+clientpb/
 .DS_Store
+*.json
+priv_sk
+tbls_sk*
