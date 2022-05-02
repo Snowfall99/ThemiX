@@ -743,9 +743,8 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 }
 
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
-	if !inst.isDecided && ((inst.numOneSkip[inst.round] >= inst.fastgroup && inst.proposal != nil) ||
-		(inst.numZeroSkip[inst.round] >= inst.fastgroup && inst.id == inst.proposer && inst.proposal != nil) ||
-		(inst.numZeroSkip[inst.round] >= inst.fastgroup && inst.id != inst.proposer)) {
+	if !inst.isDecided &&
+		(inst.numOneSkip[inst.round] >= inst.fastgroup || inst.numZeroSkip[inst.round] >= inst.fastgroup) {
 		if inst.numOneSkip[inst.round] >= inst.fastgroup {
 			inst.binVals = 1
 			inst.isDecided = true
@@ -800,9 +799,8 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 				singleCONZero++
 			}
 		}
-		if !inst.isDecided && ((singleCONOne >= int(inst.thld) && inst.numBvalOne[inst.round] >= inst.thld && inst.proposal != nil) ||
-			(singleCONZero >= int(inst.thld) && inst.numBvalZero[inst.round] >= inst.thld && inst.id == inst.proposer && inst.proposal != nil) ||
-			(singleCONZero >= int(inst.thld) && inst.numBvalZero[inst.round] >= inst.thld && inst.id != inst.proposer)) {
+		if !inst.isDecided && ((singleCONOne >= int(inst.thld) && inst.numBvalOne[inst.round] >= inst.thld) ||
+			(singleCONZero >= int(inst.thld) && inst.numBvalZero[inst.round] >= inst.thld)) {
 			inst.isDecided = true
 			if singleCONOne >= int(inst.thld) {
 				inst.binVals = 1
@@ -841,10 +839,6 @@ func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
 			if inst.isDecided {
 				inst.isFinished = true
 				return false, true
-			}
-			if (inst.binVals == 1 && inst.proposal == nil) ||
-				(inst.binVals == 0 && inst.proposal == nil && inst.id == inst.proposer) {
-				return false, false
 			}
 			inst.lg.Info("coin result",
 				zap.Int("proposer", int(inst.id)),

@@ -4,3 +4,11 @@ clientpb/
 *.json
 priv_sk
 tbls_sk*
+*.config
+*.log
+log/
+keys-*/
+__init__.py
+__pycache__/
+main
+client

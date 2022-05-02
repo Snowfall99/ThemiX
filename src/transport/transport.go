@@ -10,6 +10,7 @@ import (
 
 type Transport interface {
 	Broadcast(msg *consmsgpb.WholeMessage)
+	SendMessage(id uint32, msg *consmsgpb.WholeMessage)
 }
 
 // InitTransport executes transport layer initiliazation, which returns transport, a channel

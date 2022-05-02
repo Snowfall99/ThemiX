@@ -34,7 +34,7 @@ You can build the whole project as follows
 cd src/
 make
 ```
-We set `n=5 and f=2` as default. You can refer to [Build Step by Step](#build-step-by-step) for more information.
+We set `n=5 and t=3` as default. You can refer to [Build Step by Step](#build-step-by-step) for more information.
 
 ### Build Step by Step
 1. Build ThemiX
