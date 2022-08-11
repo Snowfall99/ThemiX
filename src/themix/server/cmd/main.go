@@ -3,27 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"go.themix.io/crypto/bls"
 	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/themix/config"
+	"go.themix.io/themix/logger"
 	"go.themix.io/themix/server"
 	"go.themix.io/transport/http"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
-
-func newLogger(id int) (*zap.Logger, error) {
-	cfg := zap.NewProductionConfig()
-	cfg.OutputPaths = []string{
-		"log/server" + strconv.Itoa(id),
-	}
-	cfg.Sampling = nil
-	cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-	return cfg.Build()
-}
 
 func removeLastRune(s string) string {
 	r := []rune(s)
@@ -40,9 +28,9 @@ func main() {
 		panic(err)
 	}
 
-	lg, err := newLogger(int(config.Id))
+	lg, err := logger.NewLogger(int(config.Id))
 	if err != nil {
-		panic(fmt.Sprint("newLogger: ", err))
+		panic(err)
 	}
 	defer lg.Sync()
 
