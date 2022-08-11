@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/ecdsa"
 	"sync"
 
 	"go.themix.io/crypto/bls"
@@ -13,7 +14,7 @@ type state struct {
 	lg          *zap.Logger
 	tp          transport.Transport
 	blsSig      *bls.BlsSig
-	pkPath      string
+	pk          *ecdsa.PrivateKey
 	proposer    *Proposer
 	id          uint32
 	n           uint64
@@ -28,7 +29,7 @@ type state struct {
 func initState(lg *zap.Logger,
 	tp transport.Transport,
 	blsSig *bls.BlsSig,
-	pkPath string,
+	pk *ecdsa.PrivateKey,
 	id uint32,
 	proposer *Proposer,
 	n uint64, repc chan []byte,
@@ -37,7 +38,7 @@ func initState(lg *zap.Logger,
 		lg:          lg,
 		tp:          tp,
 		blsSig:      blsSig,
-		pkPath:      pkPath,
+		pk:          pk,
 		id:          id,
 		proposer:    proposer,
 		n:           n,
@@ -65,7 +66,7 @@ func (st *state) insertMsg(msg *consmsgpb.WholeMessage) {
 	} else {
 		if st.collected <= msg.ConsMsg.Sequence {
 			st.lock.RUnlock()
-			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pkPath, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
+			exec := initACS(st, st.lg, st.tp, st.blsSig, st.pk, st.proposer, msg.ConsMsg.Sequence, st.n, st.reqc)
 			st.lock.Lock()
 			if e, ok := st.execs[msg.ConsMsg.Sequence]; ok {
 				exec = e

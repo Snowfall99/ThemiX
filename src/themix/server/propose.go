@@ -23,7 +23,7 @@ type Proposer struct {
 	lock       sync.Mutex
 }
 
-func initProposer(lg *zap.Logger, tp transport.Transport, id uint32, reqc chan []byte, pkPath string) *Proposer {
+func initProposer(lg *zap.Logger, tp transport.Transport, id uint32, reqc chan []byte) *Proposer {
 	proposer := &Proposer{lg: lg, tp: tp, id: id, reqc: reqc, lock: sync.Mutex{}}
 	proposer.verifyReq = make(chan *clientpb.ClientMessage, channelSize)
 	proposer.verifyResp = make(chan int, channelSize)

@@ -85,7 +85,7 @@ type instance struct {
 	lock               sync.Mutex
 }
 
-func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pkPath string, sequence uint64, n uint64, thld uint64) *instance {
+func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Transport, blsSig *bls.BlsSig, pk *ecdsa.PrivateKey, sequence uint64, n uint64, thld uint64) *instance {
 	inst := &instance{
 		id:            id,
 		proposer:      proposer,
@@ -98,6 +98,7 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		f:             n / 2,
 		delta:         500,
 		deltaBar:      2500,
+		priv:          pk,
 		echoSigns:     &consmsgpb.Collections{Collections: make([][]byte, n)},
 		readySigns:    &consmsgpb.Collections{Collections: make([][]byte, n)},
 		hasSentAux:    make([]bool, maxround),
@@ -129,7 +130,6 @@ func initInstance(id uint32, proposer uint32, lg *zap.Logger, tp transport.Trans
 		numOneSkip:    make([]uint64, maxround),
 		lock:          sync.Mutex{}}
 	inst.fastgroup = uint64(math.Ceil(3*float64(inst.f)/2)) + 1
-	inst.priv, _ = myecdsa.LoadKey(pkPath)
 	for i := 0; i < maxround; i++ {
 		inst.singleAuxZero[i] = true
 		inst.singleAuxOne[i] = true

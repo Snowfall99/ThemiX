@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"sync"
 
@@ -34,7 +35,7 @@ func initACS(st *state,
 	lg *zap.Logger,
 	tp transport.Transport,
 	blsSig *bls.BlsSig,
-	pkPath string,
+	pk *ecdsa.PrivateKey,
 	proposer *Proposer,
 	seq uint64, n uint64,
 	reqc chan *consmsgpb.WholeMessage) *asyncCommSubset {
@@ -53,7 +54,7 @@ func initACS(st *state,
 	}
 	re.thld = n/2 + 1
 	for i := info.IDType(0); i < info.IDType(n); i++ {
-		re.instances[i] = initInstance(uint32(i), proposer.id, lg, tp, blsSig, pkPath, seq, n, re.thld)
+		re.instances[i] = initInstance(uint32(i), proposer.id, lg, tp, blsSig, pk, seq, n, re.thld)
 	}
 	return re
 }
