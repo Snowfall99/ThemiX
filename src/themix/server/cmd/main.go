@@ -1,16 +1,14 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"strconv"
 	"strings"
 
 	"go.themix.io/crypto/bls"
 	myecdsa "go.themix.io/crypto/ecdsa"
+	"go.themix.io/themix/config"
 	"go.themix.io/themix/server"
 	"go.themix.io/transport/http"
 	"go.uber.org/zap"
@@ -32,31 +30,15 @@ func removeLastRune(s string) string {
 	return string(r[:len(r)-1])
 }
 
-type Configuration struct {
-	Id      uint64 `json:"id"`
-	Batch   int    `json:"batchsize"`
-	Port    int    `json:"port"`
-	Address string `json:"adress"`
-	Key     string `json:"key_path"`
-	Cluster string `json:"cluster"`
-	Pk      string `json:"pk"`
-	Ck      string `json:"ck"`
-}
-
 func main() {
 	sign := flag.Bool("sign", false, "whether to verify client sign or not")
 	batchsize := flag.Int("batch", 1, "how many times for a client signature being verified")
 	flag.Parse()
 
-	jsonFile, err := os.Open("node.json")
+	config, err := config.ReadConfig("node.json")
 	if err != nil {
-		panic(fmt.Sprint("os.Open: ", err))
+		panic(err)
 	}
-	defer jsonFile.Close()
-
-	data, _ := ioutil.ReadAll(jsonFile)
-	var config Configuration
-	json.Unmarshal([]byte(data), &config)
 
 	lg, err := newLogger(int(config.Id))
 	if err != nil {
