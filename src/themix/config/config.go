@@ -9,9 +9,9 @@ import (
 
 type Configuration struct {
 	Id      uint64 `json:"id"`
-	Batch   int    `json:"batchsize"`
+	Batch   int    `json:"batch"`
 	Port    int    `json:"port"`
-	Address string `json:"adress"`
+	Address string `json:"address"`
 	Key     string `json:"key_path"`
 	Cluster string `json:"cluster"`
 	Pk      string `json:"pk"`
