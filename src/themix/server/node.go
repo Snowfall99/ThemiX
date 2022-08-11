@@ -10,15 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Node is a local process
-type Node struct {
-	reply     chan []byte
-	proposer  *Proposer
-	transport *transport.Transport
-}
-
 // InitNode initiate a node for processing messages
-func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pk *ecdsa.PrivateKey, id uint32, n uint64, port int, peers []http.Peer, batch int, ck *ecdsa.PrivateKey, sign bool) {
+func InitNode(lg *zap.Logger, blsSig *bls.BlsSig, pk *ecdsa.PrivateKey, ck *ecdsa.PrivateKey, id uint32, n uint64, port int, peers []http.Peer, batch int, sign bool) {
 	tp, msgc, reqc, repc := transport.InitTransport(lg, id, port, peers, ck, sign, batch)
 	proposer := initProposer(lg, tp, id, reqc)
 	state := initState(lg, tp, blsSig, pk, id, proposer, n, repc, batch)

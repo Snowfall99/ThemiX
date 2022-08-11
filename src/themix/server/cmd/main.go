@@ -57,5 +57,5 @@ func main() {
 		}
 		peers = append(peers, peer)
 	}
-	server.InitNode(lg, bls, pk, uint32(config.Id), uint64(len(addrs)), config.Port, peers, *BATCH, ck, *SIGN)
+	server.InitNode(lg, bls, pk, ck, uint32(config.Id), uint64(len(addrs)), config.Port, peers, *BATCH, *SIGN)
 }
