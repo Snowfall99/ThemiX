@@ -2,11 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"strings"
 
 	"go.themix.io/crypto/bls"
-	myecdsa "go.themix.io/crypto/ecdsa"
+	"go.themix.io/crypto/ecdsa"
 	"go.themix.io/themix/config"
 	"go.themix.io/themix/logger"
 	"go.themix.io/themix/server"
@@ -39,9 +38,16 @@ func main() {
 		zap.Int("Nodes", len(addrs)))
 	bls, err := bls.InitBLS(config.Key, len(addrs), int(len(addrs)/2+1), int(config.Id))
 	if err != nil {
-		panic(fmt.Sprint("bls.InitBLS: ", err))
+		panic(err)
 	}
-	pk, _ := myecdsa.LoadKey(config.Pk)
+	pk, err := ecdsa.LoadKey(config.Pk)
+	if err != nil {
+		panic(err)
+	}
+	ck, err := ecdsa.LoadKey(config.Ck)
+	if err != nil {
+		panic(err)
+	}
 	var peers []http.Peer
 	for i := 0; i < len(addrs); i++ {
 		peer := http.Peer{
@@ -50,11 +56,6 @@ func main() {
 			Addr:      addrs[i],
 		}
 		peers = append(peers, peer)
-	}
-	ckPath := config.Ck
-	ck, err := myecdsa.LoadKey(ckPath)
-	if err != nil {
-		panic(fmt.Sprintf("ecdsa.LoadKey: %v", err))
 	}
 	server.InitNode(lg, bls, config.Pk, uint32(config.Id), uint64(len(addrs)), config.Port, peers, *BATCH, ck, *SIGN)
 }
