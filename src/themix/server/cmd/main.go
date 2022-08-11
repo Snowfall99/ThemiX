@@ -11,16 +11,14 @@ import (
 	"go.themix.io/themix/logger"
 	"go.themix.io/themix/server"
 	"go.themix.io/transport/http"
+	"go.uber.org/zap"
 )
 
-func removeLastRune(s string) string {
-	r := []rune(s)
-	return string(r[:len(r)-1])
-}
+var DEBUG = flag.Bool("debug", true, "enable debug logging")
+var SIGN = flag.Bool("sign", false, "enable client request signature verification")
+var BATCH = flag.Int("batch", 1, "the number of client requests in a batch")
 
 func main() {
-	sign := flag.Bool("sign", false, "whether to verify client sign or not")
-	batchsize := flag.Int("batch", 1, "how many times for a client signature being verified")
 	flag.Parse()
 
 	config, err := config.ReadConfig("node.json")
@@ -28,14 +26,17 @@ func main() {
 		panic(err)
 	}
 
-	lg, err := logger.NewLogger(int(config.Id))
+	lg, err := logger.NewLogger(int(config.Id), *DEBUG)
 	if err != nil {
 		panic(err)
 	}
 	defer lg.Sync()
 
 	addrs := strings.Split(config.Cluster, ",")
-	fmt.Printf("%d %s %d\n", config.Id, addrs, len(addrs))
+	lg.Info("Init",
+		zap.Int("ID", int(config.Id)),
+		zap.Strings("Addresses", addrs),
+		zap.Int("Nodes", len(addrs)))
 	bls, err := bls.InitBLS(config.Key, len(addrs), int(len(addrs)/2+1), int(config.Id))
 	if err != nil {
 		panic(fmt.Sprint("bls.InitBLS: ", err))
@@ -55,5 +56,5 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("ecdsa.LoadKey: %v", err))
 	}
-	server.InitNode(lg, bls, config.Pk, uint32(config.Id), uint64(len(addrs)), config.Port, peers, *batchsize, ck, *sign)
+	server.InitNode(lg, bls, config.Pk, uint32(config.Id), uint64(len(addrs)), config.Port, peers, *BATCH, ck, *SIGN)
 }
