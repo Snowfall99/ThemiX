@@ -12,3 +12,4 @@ __init__.py
 __pycache__/
 main
 client
+.history
