@@ -191,40 +191,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_BVAL_ZERO_COLLECTION:
 		return inst.bvalZeroHandler(msg)
 	case consmsgpb.MessageType_BVAL_ONE_COLLECTION:
-		if inst.oneEndorsed[msg.ConsMsg.Round] || inst.zeroEndorsed[msg.ConsMsg.Round] || inst.hasSentAux[msg.ConsMsg.Round] {
-			return false, false
-		}
-		if !inst.VerifyCollection(msg) {
-			return false, false
-		}
-		inst.tp.Broadcast(msg)
-		inst.oneEndorsed[msg.ConsMsg.Round] = true
-		if !inst.hasSentAux[msg.ConsMsg.Round] {
-			inst.hasSentAux[msg.ConsMsg.Round] = true
-			if !inst.hasVotedZero[msg.ConsMsg.Round] {
-				inst.promiseOne[msg.ConsMsg.Round] = true
-			}
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_AUX,
-					Proposer: msg.ConsMsg.Proposer,
-					Round:    msg.ConsMsg.Round,
-					Sequence: msg.ConsMsg.Sequence,
-					Content:  []byte{1}, // aux 1
-					Single:   inst.promiseOne[msg.ConsMsg.Round],
-				},
-			}
-			inst.tp.Broadcast(m)
-			if !inst.startS[msg.ConsMsg.Round] {
-				inst.startS[msg.ConsMsg.Round] = true
-				go func() {
-					time.Sleep(time.Duration(inst.delta) * time.Millisecond)
-					inst.canSkipCoin[msg.ConsMsg.Round] = false
-				}()
-			}
-		}
-		inst.isReadyToSendCoin()
-		return inst.isReadyToEnterNewRound()
+		return inst.bvalOneHandler(msg)
 	case consmsgpb.MessageType_AUX_ZERO_COLLECTION:
 		if inst.fastAuxZero || inst.fastAuxOne || inst.round != msg.ConsMsg.Round {
 			return false, false
@@ -771,6 +738,43 @@ func (inst *instance) bvalZeroHandler(msg *consmsgpb.WholeMessage) (bool, bool) 
 				Sequence: msg.ConsMsg.Sequence,
 				Content:  []byte{0}, // aux 0
 				Single:   inst.promiseZero[msg.ConsMsg.Round],
+			},
+		}
+		inst.tp.Broadcast(m)
+		if !inst.startS[msg.ConsMsg.Round] {
+			inst.startS[msg.ConsMsg.Round] = true
+			go func() {
+				time.Sleep(time.Duration(inst.delta) * time.Millisecond)
+				inst.canSkipCoin[msg.ConsMsg.Round] = false
+			}()
+		}
+	}
+	inst.isReadyToSendCoin()
+	return inst.isReadyToEnterNewRound()
+}
+
+func (inst *instance) bvalOneHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	if inst.oneEndorsed[msg.ConsMsg.Round] || inst.zeroEndorsed[msg.ConsMsg.Round] || inst.hasSentAux[msg.ConsMsg.Round] {
+		return false, false
+	}
+	if !inst.VerifyCollection(msg) {
+		return false, false
+	}
+	inst.tp.Broadcast(msg)
+	inst.oneEndorsed[msg.ConsMsg.Round] = true
+	if !inst.hasSentAux[msg.ConsMsg.Round] {
+		inst.hasSentAux[msg.ConsMsg.Round] = true
+		if !inst.hasVotedZero[msg.ConsMsg.Round] {
+			inst.promiseOne[msg.ConsMsg.Round] = true
+		}
+		m := &consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_AUX,
+				Proposer: msg.ConsMsg.Proposer,
+				Round:    msg.ConsMsg.Round,
+				Sequence: msg.ConsMsg.Sequence,
+				Content:  []byte{1}, // aux 1
+				Single:   inst.promiseOne[msg.ConsMsg.Round],
 			},
 		}
 		inst.tp.Broadcast(m)
