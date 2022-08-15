@@ -175,42 +175,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_ECHO:
 		return inst.echoHandler(msg)
 	case consmsgpb.MessageType_READY:
-		if inst.readySigns.Collections[msg.From] != nil || inst.round != 0 {
-			return false, false
-		}
-		inst.numReady++
-		inst.readySigns.Collections[msg.From] = msg.Signature
-		if inst.numReady >= inst.f+1 && inst.round == 0 && !inst.fastRBC {
-			if !inst.hasReadyCollection {
-				inst.hasReadyCollection = true
-				collection := serialCollection(inst.readySigns)
-				m := &consmsgpb.WholeMessage{
-					ConsMsg: &consmsgpb.ConsMessage{
-						Type:     consmsgpb.MessageType_READY_COLLECTION,
-						Proposer: msg.ConsMsg.Proposer,
-						Round:    msg.ConsMsg.Round,
-						Sequence: msg.ConsMsg.Sequence,
-					},
-					Collection: collection,
-				}
-				inst.tp.Broadcast(m)
-			}
-			if inst.round == 0 && !inst.hasVotedOne[inst.round] && inst.proposal != nil &&
-				!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
-				inst.fastRBC = true
-				inst.hasVotedOne[inst.round] = true
-				m := &consmsgpb.WholeMessage{
-					ConsMsg: &consmsgpb.ConsMessage{
-						Type:     consmsgpb.MessageType_BVAL,
-						Proposer: msg.ConsMsg.Proposer,
-						Sequence: msg.ConsMsg.Sequence,
-						Content:  []byte{1}, // vote 1
-					},
-				}
-				inst.tp.Broadcast(m)
-			}
-		}
-		return inst.isReadyToEnterNewRound()
+		return inst.readyHandler(msg)
 	case consmsgpb.MessageType_BVAL:
 		var b bool
 		switch msg.ConsMsg.Content[0] {
@@ -736,6 +701,45 @@ func (inst *instance) echoHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 			!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
 			inst.hasVotedOne[inst.round] = true
 			inst.fastRBC = true
+			m := &consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_BVAL,
+					Proposer: msg.ConsMsg.Proposer,
+					Sequence: msg.ConsMsg.Sequence,
+					Content:  []byte{1}, // vote 1
+				},
+			}
+			inst.tp.Broadcast(m)
+		}
+	}
+	return inst.isReadyToEnterNewRound()
+}
+
+func (inst *instance) readyHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	if inst.readySigns.Collections[msg.From] != nil || inst.round != 0 {
+		return false, false
+	}
+	inst.numReady++
+	inst.readySigns.Collections[msg.From] = msg.Signature
+	if inst.numReady >= inst.f+1 && inst.round == 0 && !inst.fastRBC {
+		if !inst.hasReadyCollection {
+			inst.hasReadyCollection = true
+			collection := serialCollection(inst.readySigns)
+			m := &consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_READY_COLLECTION,
+					Proposer: msg.ConsMsg.Proposer,
+					Round:    msg.ConsMsg.Round,
+					Sequence: msg.ConsMsg.Sequence,
+				},
+				Collection: collection,
+			}
+			inst.tp.Broadcast(m)
+		}
+		if inst.round == 0 && !inst.hasVotedOne[inst.round] && inst.proposal != nil &&
+			!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
+			inst.fastRBC = true
+			inst.hasVotedOne[inst.round] = true
 			m := &consmsgpb.WholeMessage{
 				ConsMsg: &consmsgpb.ConsMessage{
 					Type:     consmsgpb.MessageType_BVAL,
