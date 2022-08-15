@@ -199,7 +199,6 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	default:
 		return false, false
 	}
-	return false, false
 }
 
 func (inst *instance) valHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
