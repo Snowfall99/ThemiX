@@ -171,37 +171,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 
 	switch msg.ConsMsg.Type {
 	case consmsgpb.MessageType_VAL:
-		inst.proposal = msg
-		hash, _ := sha256.ComputeHash(msg.ConsMsg.Content)
-		inst.hash = hash
-		if !inst.hasEcho {
-			inst.hasEcho = true
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_ECHO,
-					Proposer: msg.ConsMsg.Proposer,
-					Sequence: msg.ConsMsg.Sequence,
-					Content:  hash,
-				}}
-			inst.tp.Broadcast(m)
-		}
-		if inst.round == 0 && ((inst.numReady >= inst.thld && inst.proposal != nil && !inst.hasVotedOne[inst.round]) ||
-			(inst.numEcho >= inst.fastgroup && inst.proposal != nil && !inst.hasVotedOne[inst.round])) &&
-			!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
-			inst.hasVotedOne[inst.round] = true
-			inst.fastRBC = true
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_BVAL,
-					Proposer: msg.ConsMsg.Proposer,
-					Sequence: msg.ConsMsg.Sequence,
-					Content:  []byte{1}, // vote 1
-				},
-			}
-			inst.tp.Broadcast(m)
-		}
-		inst.isReadyToSendCoin()
-		return inst.isReadyToEnterNewRound()
+		inst.valHandler(msg)
 	case consmsgpb.MessageType_ECHO:
 		if inst.echoSigns.Collections[msg.From] != nil || inst.round != 0 {
 			return false, false
@@ -740,6 +710,40 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 		return false, false
 	}
 	return false, false
+}
+
+func (inst *instance) valHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	inst.proposal = msg
+	hash, _ := sha256.ComputeHash(msg.ConsMsg.Content)
+	inst.hash = hash
+	if !inst.hasEcho {
+		inst.hasEcho = true
+		m := &consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_ECHO,
+				Proposer: msg.ConsMsg.Proposer,
+				Sequence: msg.ConsMsg.Sequence,
+				Content:  hash,
+			}}
+		inst.tp.Broadcast(m)
+	}
+	if inst.round == 0 && ((inst.numReady >= inst.thld && inst.proposal != nil && !inst.hasVotedOne[inst.round]) ||
+		(inst.numEcho >= inst.fastgroup && inst.proposal != nil && !inst.hasVotedOne[inst.round])) &&
+		!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
+		inst.hasVotedOne[inst.round] = true
+		inst.fastRBC = true
+		m := &consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_BVAL,
+				Proposer: msg.ConsMsg.Proposer,
+				Sequence: msg.ConsMsg.Sequence,
+				Content:  []byte{1}, // vote 1
+			},
+		}
+		inst.tp.Broadcast(m)
+	}
+	inst.isReadyToSendCoin()
+	return inst.isReadyToEnterNewRound()
 }
 
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
