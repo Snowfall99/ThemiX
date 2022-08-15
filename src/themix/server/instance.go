@@ -183,11 +183,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_SKIP:
 		return inst.skipHandler(msg)
 	case consmsgpb.MessageType_COIN:
-		inst.coinMsgs[msg.ConsMsg.Round][msg.From] = msg
-		inst.numCoin[msg.ConsMsg.Round]++
-		if inst.round == msg.ConsMsg.Round && inst.numCoin[inst.round] >= inst.f+1 {
-			return inst.isReadyToEnterNewRound()
-		}
+		return inst.coinHandler(msg)
 	case consmsgpb.MessageType_ECHO_COLLECTION:
 		if inst.fastRBC || inst.hasVotedOne[inst.round] || inst.hash == nil || inst.round != 0 {
 			return false, false
@@ -764,6 +760,15 @@ func (inst *instance) skipHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.numOneSkip[msg.ConsMsg.Round]++
 	}
 	if inst.round == msg.ConsMsg.Round {
+		return inst.isReadyToEnterNewRound()
+	}
+	return false, false
+}
+
+func (inst *instance) coinHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	inst.coinMsgs[msg.ConsMsg.Round][msg.From] = msg
+	inst.numCoin[msg.ConsMsg.Round]++
+	if inst.round == msg.ConsMsg.Round && inst.numCoin[inst.round] >= inst.f+1 {
 		return inst.isReadyToEnterNewRound()
 	}
 	return false, false
