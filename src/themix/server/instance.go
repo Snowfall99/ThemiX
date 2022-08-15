@@ -171,79 +171,9 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 
 	switch msg.ConsMsg.Type {
 	case consmsgpb.MessageType_VAL:
-		inst.valHandler(msg)
+		return inst.valHandler(msg)
 	case consmsgpb.MessageType_ECHO:
-		if inst.echoSigns.Collections[msg.From] != nil || inst.round != 0 {
-			return false, false
-		}
-		for _, digest := range inst.valMsgs {
-			if digest != nil && !bytes.Equal(digest, msg.ConsMsg.Content) {
-				return false, false
-			}
-		}
-		inst.valMsgs[msg.From] = msg.ConsMsg.Content
-		if !inst.hasEcho {
-			inst.hasEcho = true
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_ECHO,
-					Proposer: msg.ConsMsg.Proposer,
-					Sequence: msg.ConsMsg.Sequence,
-					Content:  msg.ConsMsg.Content,
-				},
-			}
-			inst.tp.Broadcast(m)
-		}
-		inst.numEcho++
-		inst.echoSigns.Collections[msg.From] = msg.Signature
-		if inst.numEcho >= inst.f+1 && !inst.startR {
-			inst.startR = true
-			go func() {
-				time.Sleep(time.Duration(inst.deltaBar) * time.Millisecond)
-				inst.expireR = true
-				if inst.numEcho >= inst.f+1 {
-					inst.tp.Broadcast(&consmsgpb.WholeMessage{
-						ConsMsg: &consmsgpb.ConsMessage{
-							Type:     consmsgpb.MessageType_READY,
-							Proposer: msg.ConsMsg.Proposer,
-							Sequence: msg.ConsMsg.Sequence,
-							Content:  msg.ConsMsg.Content,
-						},
-					})
-				}
-			}()
-		}
-		if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
-			if !inst.hasEchoCollection {
-				inst.hasEchoCollection = true
-				collection := serialCollection(inst.echoSigns)
-				m := &consmsgpb.WholeMessage{
-					ConsMsg: &consmsgpb.ConsMessage{
-						Type:     consmsgpb.MessageType_ECHO_COLLECTION,
-						Proposer: msg.ConsMsg.Proposer,
-						Round:    msg.ConsMsg.Round,
-						Sequence: msg.ConsMsg.Sequence,
-					},
-					Collection: collection,
-				}
-				inst.tp.Broadcast(m)
-			}
-			if inst.round == 0 && !inst.hasVotedOne[inst.round] && inst.proposal != nil &&
-				!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
-				inst.hasVotedOne[inst.round] = true
-				inst.fastRBC = true
-				m := &consmsgpb.WholeMessage{
-					ConsMsg: &consmsgpb.ConsMessage{
-						Type:     consmsgpb.MessageType_BVAL,
-						Proposer: msg.ConsMsg.Proposer,
-						Sequence: msg.ConsMsg.Sequence,
-						Content:  []byte{1}, // vote 1
-					},
-				}
-				inst.tp.Broadcast(m)
-			}
-		}
-		return inst.isReadyToEnterNewRound()
+		return inst.echoHandler(msg)
 	case consmsgpb.MessageType_READY:
 		if inst.readySigns.Collections[msg.From] != nil || inst.round != 0 {
 			return false, false
@@ -743,6 +673,80 @@ func (inst *instance) valHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 		inst.tp.Broadcast(m)
 	}
 	inst.isReadyToSendCoin()
+	return inst.isReadyToEnterNewRound()
+}
+
+func (inst *instance) echoHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	if inst.echoSigns.Collections[msg.From] != nil || inst.round != 0 {
+		return false, false
+	}
+	for _, digest := range inst.valMsgs {
+		if digest != nil && !bytes.Equal(digest, msg.ConsMsg.Content) {
+			return false, false
+		}
+	}
+	inst.valMsgs[msg.From] = msg.ConsMsg.Content
+	if !inst.hasEcho {
+		inst.hasEcho = true
+		m := &consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_ECHO,
+				Proposer: msg.ConsMsg.Proposer,
+				Sequence: msg.ConsMsg.Sequence,
+				Content:  msg.ConsMsg.Content,
+			},
+		}
+		inst.tp.Broadcast(m)
+	}
+	inst.numEcho++
+	inst.echoSigns.Collections[msg.From] = msg.Signature
+	if inst.numEcho >= inst.f+1 && !inst.startR {
+		inst.startR = true
+		go func() {
+			time.Sleep(time.Duration(inst.deltaBar) * time.Millisecond)
+			inst.expireR = true
+			if inst.numEcho >= inst.f+1 {
+				inst.tp.Broadcast(&consmsgpb.WholeMessage{
+					ConsMsg: &consmsgpb.ConsMessage{
+						Type:     consmsgpb.MessageType_READY,
+						Proposer: msg.ConsMsg.Proposer,
+						Sequence: msg.ConsMsg.Sequence,
+						Content:  msg.ConsMsg.Content,
+					},
+				})
+			}
+		}()
+	}
+	if inst.numEcho >= inst.fastgroup && !inst.fastRBC && inst.round == 0 {
+		if !inst.hasEchoCollection {
+			inst.hasEchoCollection = true
+			collection := serialCollection(inst.echoSigns)
+			m := &consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_ECHO_COLLECTION,
+					Proposer: msg.ConsMsg.Proposer,
+					Round:    msg.ConsMsg.Round,
+					Sequence: msg.ConsMsg.Sequence,
+				},
+				Collection: collection,
+			}
+			inst.tp.Broadcast(m)
+		}
+		if inst.round == 0 && !inst.hasVotedOne[inst.round] && inst.proposal != nil &&
+			!inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] {
+			inst.hasVotedOne[inst.round] = true
+			inst.fastRBC = true
+			m := &consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_BVAL,
+					Proposer: msg.ConsMsg.Proposer,
+					Sequence: msg.ConsMsg.Sequence,
+					Content:  []byte{1}, // vote 1
+				},
+			}
+			inst.tp.Broadcast(m)
+		}
+	}
 	return inst.isReadyToEnterNewRound()
 }
 
