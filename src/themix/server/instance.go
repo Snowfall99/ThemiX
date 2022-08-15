@@ -195,27 +195,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_AUX_ZERO_COLLECTION:
 		return inst.auxZeroHandler(msg)
 	case consmsgpb.MessageType_AUX_ONE_COLLECTION:
-		if inst.fastAuxZero || inst.fastAuxOne || inst.round != msg.ConsMsg.Round {
-			return false, false
-		}
-		if !inst.VerifyCollection(msg) {
-			return false, false
-		}
-		inst.fastAuxOne = true
-		inst.oneEndorsed[inst.round] = true
-		if inst.canSkipCoin[inst.round] {
-			inst.tp.Broadcast(&consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_SKIP,
-					Proposer: msg.ConsMsg.Proposer,
-					Round:    inst.round,
-					Sequence: msg.ConsMsg.Sequence,
-					Content:  []byte{1},
-				},
-			})
-		}
-		inst.isReadyToSendCoin()
-		return inst.isReadyToEnterNewRound()
+		return inst.auxOneHandler(msg)
 	default:
 		return false, false
 	}
@@ -787,6 +767,30 @@ func (inst *instance) auxZeroHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 				Round:    inst.round,
 				Sequence: msg.ConsMsg.Sequence,
 				Content:  []byte{0},
+			},
+		})
+	}
+	inst.isReadyToSendCoin()
+	return inst.isReadyToEnterNewRound()
+}
+
+func (inst *instance) auxOneHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	if inst.fastAuxZero || inst.fastAuxOne || inst.round != msg.ConsMsg.Round {
+		return false, false
+	}
+	if !inst.VerifyCollection(msg) {
+		return false, false
+	}
+	inst.fastAuxOne = true
+	inst.oneEndorsed[inst.round] = true
+	if inst.canSkipCoin[inst.round] {
+		inst.tp.Broadcast(&consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_SKIP,
+				Proposer: msg.ConsMsg.Proposer,
+				Round:    inst.round,
+				Sequence: msg.ConsMsg.Sequence,
+				Content:  []byte{1},
 			},
 		})
 	}
