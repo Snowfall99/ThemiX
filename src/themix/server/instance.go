@@ -187,27 +187,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_ECHO_COLLECTION:
 		return inst.echoColHandler(msg)
 	case consmsgpb.MessageType_READY_COLLECTION:
-		if inst.fastRBC || inst.hasVotedOne[inst.round] || inst.hash == nil || inst.round != 0 {
-			return false, false
-		}
-		if !inst.verifyREADYCollection(msg) {
-			return false, false
-		}
-		inst.fastRBC = true
-		inst.tp.Broadcast(msg)
-		if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] && inst.proposal != nil {
-			inst.hasVotedOne[inst.round] = true
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_BVAL,
-					Proposer: msg.ConsMsg.Proposer,
-					Sequence: msg.ConsMsg.Sequence,
-					Content:  []byte{1}, // vote 1
-				},
-			}
-			inst.tp.Broadcast(m)
-		}
-		return inst.isReadyToEnterNewRound()
+		return inst.readyColHandler(msg)
 	case consmsgpb.MessageType_BVAL_ZERO_COLLECTION:
 		if inst.zeroEndorsed[msg.ConsMsg.Round] || inst.oneEndorsed[msg.ConsMsg.Round] || inst.hasSentAux[msg.ConsMsg.Round] {
 			return false, false
@@ -759,6 +739,30 @@ func (inst *instance) echoColHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 		return false, false
 	}
 	if !inst.verifyECHOCollection(msg) {
+		return false, false
+	}
+	inst.fastRBC = true
+	inst.tp.Broadcast(msg)
+	if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] && inst.proposal != nil {
+		inst.hasVotedOne[inst.round] = true
+		m := &consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_BVAL,
+				Proposer: msg.ConsMsg.Proposer,
+				Sequence: msg.ConsMsg.Sequence,
+				Content:  []byte{1}, // vote 1
+			},
+		}
+		inst.tp.Broadcast(m)
+	}
+	return inst.isReadyToEnterNewRound()
+}
+
+func (inst *instance) readyColHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	if inst.fastRBC || inst.hasVotedOne[inst.round] || inst.hash == nil || inst.round != 0 {
+		return false, false
+	}
+	if !inst.verifyREADYCollection(msg) {
 		return false, false
 	}
 	inst.fastRBC = true
