@@ -975,13 +975,6 @@ func (inst *instance) decidedOne() bool {
 	return inst.isDecided && inst.binVals == 1
 }
 
-func (inst *instance) getProposal() *consmsgpb.WholeMessage {
-	inst.lock.Lock()
-	defer inst.lock.Unlock()
-
-	return inst.proposal
-}
-
 func (inst *instance) getCoinInfo() []byte {
 	bsender := make([]byte, 8)
 	binary.LittleEndian.PutUint64(bsender, uint64(inst.id))
