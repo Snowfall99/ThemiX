@@ -185,27 +185,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_COIN:
 		return inst.coinHandler(msg)
 	case consmsgpb.MessageType_ECHO_COLLECTION:
-		if inst.fastRBC || inst.hasVotedOne[inst.round] || inst.hash == nil || inst.round != 0 {
-			return false, false
-		}
-		if !inst.verifyECHOCollection(msg) {
-			return false, false
-		}
-		inst.fastRBC = true
-		inst.tp.Broadcast(msg)
-		if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] && inst.proposal != nil {
-			inst.hasVotedOne[inst.round] = true
-			m := &consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_BVAL,
-					Proposer: msg.ConsMsg.Proposer,
-					Sequence: msg.ConsMsg.Sequence,
-					Content:  []byte{1}, // vote 1
-				},
-			}
-			inst.tp.Broadcast(m)
-		}
-		return inst.isReadyToEnterNewRound()
+		return inst.echoColHandler(msg)
 	case consmsgpb.MessageType_READY_COLLECTION:
 		if inst.fastRBC || inst.hasVotedOne[inst.round] || inst.hash == nil || inst.round != 0 {
 			return false, false
@@ -772,6 +752,30 @@ func (inst *instance) coinHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 		return inst.isReadyToEnterNewRound()
 	}
 	return false, false
+}
+
+func (inst *instance) echoColHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	if inst.fastRBC || inst.hasVotedOne[inst.round] || inst.hash == nil || inst.round != 0 {
+		return false, false
+	}
+	if !inst.verifyECHOCollection(msg) {
+		return false, false
+	}
+	inst.fastRBC = true
+	inst.tp.Broadcast(msg)
+	if !inst.promiseZero[inst.round] && !inst.hasSentAux[inst.round] && inst.proposal != nil {
+		inst.hasVotedOne[inst.round] = true
+		m := &consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_BVAL,
+				Proposer: msg.ConsMsg.Proposer,
+				Sequence: msg.ConsMsg.Sequence,
+				Content:  []byte{1}, // vote 1
+			},
+		}
+		inst.tp.Broadcast(m)
+	}
+	return inst.isReadyToEnterNewRound()
 }
 
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
