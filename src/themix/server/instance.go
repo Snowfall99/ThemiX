@@ -179,134 +179,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_BVAL:
 		return inst.bvalHandler(msg)
 	case consmsgpb.MessageType_AUX:
-		switch msg.ConsMsg.Content[0] {
-		case 0:
-			inst.numAuxZero[msg.ConsMsg.Round]++
-			inst.auxZeroSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
-			inst.singleAuxOne[msg.ConsMsg.Round] = false
-			if !msg.ConsMsg.Single {
-				inst.singleAuxZero[msg.ConsMsg.Round] = false
-			}
-		case 1:
-			inst.numAuxOne[msg.ConsMsg.Round]++
-			inst.auxOneSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
-			inst.singleAuxZero[msg.ConsMsg.Round] = false
-			if !msg.ConsMsg.Single {
-				inst.singleAuxOne[msg.ConsMsg.Round] = false
-			}
-		}
-		if inst.round == msg.ConsMsg.Round && inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld && !inst.startB[inst.round] {
-			inst.startB[inst.round] = true
-			go func() {
-				time.Sleep((time.Duration(inst.delta + inst.deltaBar)) * time.Millisecond)
-				inst.expireB[inst.round] = true
-				if inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] > inst.f &&
-					((inst.numAuxZero[inst.round] != 0 && inst.numBvalZero[inst.round] > inst.f) ||
-						(inst.numAuxOne[inst.round] != 0 && inst.numBvalOne[inst.round] > inst.f)) {
-					inst.lock.Lock()
-					inst.isReadyToSendCoin()
-					inst.lock.Unlock()
-				}
-			}()
-		} else if inst.round == msg.ConsMsg.Round && inst.numAuxOne[inst.round]+inst.numAuxZero[inst.round] >= inst.thld && inst.expireB[inst.round] {
-			inst.isReadyToSendCoin()
-		}
-		if inst.round == msg.ConsMsg.Round && msg.ConsMsg.Content[0] == 0 &&
-			!inst.fastAuxZero && inst.numAuxZero[msg.ConsMsg.Round] >= inst.fastgroup {
-			inst.fastAuxZero = true
-			collection := serialCollection(inst.auxZeroSigns[msg.ConsMsg.Round])
-			inst.tp.Broadcast(&consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_AUX_ZERO_COLLECTION,
-					Proposer: msg.ConsMsg.Proposer,
-					Round:    inst.round,
-					Sequence: msg.ConsMsg.Sequence,
-				},
-				Collection: collection,
-			})
-			inst.zeroEndorsed[inst.round] = true
-			inst.sin[inst.round] = true
-			if inst.canSkipCoin[inst.round] {
-				inst.tp.Broadcast(&consmsgpb.WholeMessage{
-					ConsMsg: &consmsgpb.ConsMessage{
-						Type:     consmsgpb.MessageType_SKIP,
-						Proposer: msg.ConsMsg.Proposer,
-						Round:    inst.round,
-						Sequence: msg.ConsMsg.Sequence,
-						Content:  msg.ConsMsg.Content,
-					},
-				})
-			}
-			inst.isReadyToSendCoin()
-			return inst.isReadyToEnterNewRound()
-		}
-		if inst.round == msg.ConsMsg.Round && msg.ConsMsg.Content[0] == 1 &&
-			!inst.fastAuxOne && inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup {
-			inst.fastAuxOne = true
-			collection := serialCollection(inst.auxOneSigns[msg.ConsMsg.Round])
-			inst.tp.Broadcast(&consmsgpb.WholeMessage{
-				ConsMsg: &consmsgpb.ConsMessage{
-					Type:     consmsgpb.MessageType_AUX_ONE_COLLECTION,
-					Proposer: msg.ConsMsg.Proposer,
-					Round:    inst.round,
-					Sequence: msg.ConsMsg.Sequence,
-				},
-				Collection: collection,
-			})
-			inst.oneEndorsed[inst.round] = true
-			inst.sin[inst.round] = true
-			if inst.canSkipCoin[inst.round] {
-				inst.tp.Broadcast(&consmsgpb.WholeMessage{
-					ConsMsg: &consmsgpb.ConsMessage{
-						Type:     consmsgpb.MessageType_SKIP,
-						Proposer: msg.ConsMsg.Proposer,
-						Round:    inst.round,
-						Sequence: msg.ConsMsg.Sequence,
-						Content:  msg.ConsMsg.Content,
-					},
-				})
-			}
-			inst.isReadyToSendCoin()
-			return inst.isReadyToEnterNewRound()
-		}
-		if inst.round == msg.ConsMsg.Round+1 {
-			switch msg.ConsMsg.Content[0] {
-			case 0:
-				if (!inst.hasVotedZero[inst.round] || !inst.hasSentAux[inst.round]) &&
-					inst.numAuxZero[msg.ConsMsg.Round] >= inst.fastgroup &&
-					!inst.promiseOne[inst.round] {
-					inst.hasVotedZero[inst.round] = true
-					inst.tp.Broadcast(&consmsgpb.WholeMessage{
-						ConsMsg: &consmsgpb.ConsMessage{
-							Type:     consmsgpb.MessageType_BVAL,
-							Proposer: msg.ConsMsg.Proposer,
-							Round:    inst.round,
-							Sequence: msg.ConsMsg.Sequence,
-							Content:  []byte{0},
-						},
-					})
-				}
-			case 1:
-				if (!inst.hasVotedOne[inst.round] || !inst.hasSentAux[inst.round]) &&
-					inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup &&
-					!inst.promiseZero[inst.round] {
-					inst.hasVotedOne[inst.round] = true
-					inst.tp.Broadcast(&consmsgpb.WholeMessage{
-						ConsMsg: &consmsgpb.ConsMessage{
-							Type:     consmsgpb.MessageType_BVAL,
-							Proposer: msg.ConsMsg.Proposer,
-							Round:    inst.round,
-							Sequence: msg.ConsMsg.Sequence,
-							Content:  []byte{1},
-						},
-					})
-				}
-			}
-		}
-		if inst.round == msg.ConsMsg.Round {
-			inst.isReadyToSendCoin()
-			return inst.isReadyToEnterNewRound()
-		}
+		return inst.auxHandler(msg)
 	case consmsgpb.MessageType_SKIP:
 		switch msg.ConsMsg.Content[0] {
 		case 0:
@@ -755,6 +628,138 @@ func (inst *instance) bvalHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 				})
 			}
 		}
+	}
+	return false, false
+}
+
+func (inst *instance) auxHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	switch msg.ConsMsg.Content[0] {
+	case 0:
+		inst.numAuxZero[msg.ConsMsg.Round]++
+		inst.auxZeroSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
+		inst.singleAuxOne[msg.ConsMsg.Round] = false
+		if !msg.ConsMsg.Single {
+			inst.singleAuxZero[msg.ConsMsg.Round] = false
+		}
+	case 1:
+		inst.numAuxOne[msg.ConsMsg.Round]++
+		inst.auxOneSigns[msg.ConsMsg.Round].Collections[msg.From] = msg.Signature
+		inst.singleAuxZero[msg.ConsMsg.Round] = false
+		if !msg.ConsMsg.Single {
+			inst.singleAuxOne[msg.ConsMsg.Round] = false
+		}
+	}
+	if inst.round == msg.ConsMsg.Round && inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] >= inst.thld && !inst.startB[inst.round] {
+		inst.startB[inst.round] = true
+		go func() {
+			time.Sleep((time.Duration(inst.delta + inst.deltaBar)) * time.Millisecond)
+			inst.expireB[inst.round] = true
+			if inst.numAuxZero[inst.round]+inst.numAuxOne[inst.round] > inst.f &&
+				((inst.numAuxZero[inst.round] != 0 && inst.numBvalZero[inst.round] > inst.f) ||
+					(inst.numAuxOne[inst.round] != 0 && inst.numBvalOne[inst.round] > inst.f)) {
+				inst.lock.Lock()
+				inst.isReadyToSendCoin()
+				inst.lock.Unlock()
+			}
+		}()
+	} else if inst.round == msg.ConsMsg.Round && inst.numAuxOne[inst.round]+inst.numAuxZero[inst.round] >= inst.thld && inst.expireB[inst.round] {
+		inst.isReadyToSendCoin()
+	}
+	if inst.round == msg.ConsMsg.Round && msg.ConsMsg.Content[0] == 0 &&
+		!inst.fastAuxZero && inst.numAuxZero[msg.ConsMsg.Round] >= inst.fastgroup {
+		inst.fastAuxZero = true
+		collection := serialCollection(inst.auxZeroSigns[msg.ConsMsg.Round])
+		inst.tp.Broadcast(&consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_AUX_ZERO_COLLECTION,
+				Proposer: msg.ConsMsg.Proposer,
+				Round:    inst.round,
+				Sequence: msg.ConsMsg.Sequence,
+			},
+			Collection: collection,
+		})
+		inst.zeroEndorsed[inst.round] = true
+		inst.sin[inst.round] = true
+		if inst.canSkipCoin[inst.round] {
+			inst.tp.Broadcast(&consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_SKIP,
+					Proposer: msg.ConsMsg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.ConsMsg.Sequence,
+					Content:  msg.ConsMsg.Content,
+				},
+			})
+		}
+		inst.isReadyToSendCoin()
+		return inst.isReadyToEnterNewRound()
+	}
+	if inst.round == msg.ConsMsg.Round && msg.ConsMsg.Content[0] == 1 &&
+		!inst.fastAuxOne && inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup {
+		inst.fastAuxOne = true
+		collection := serialCollection(inst.auxOneSigns[msg.ConsMsg.Round])
+		inst.tp.Broadcast(&consmsgpb.WholeMessage{
+			ConsMsg: &consmsgpb.ConsMessage{
+				Type:     consmsgpb.MessageType_AUX_ONE_COLLECTION,
+				Proposer: msg.ConsMsg.Proposer,
+				Round:    inst.round,
+				Sequence: msg.ConsMsg.Sequence,
+			},
+			Collection: collection,
+		})
+		inst.oneEndorsed[inst.round] = true
+		inst.sin[inst.round] = true
+		if inst.canSkipCoin[inst.round] {
+			inst.tp.Broadcast(&consmsgpb.WholeMessage{
+				ConsMsg: &consmsgpb.ConsMessage{
+					Type:     consmsgpb.MessageType_SKIP,
+					Proposer: msg.ConsMsg.Proposer,
+					Round:    inst.round,
+					Sequence: msg.ConsMsg.Sequence,
+					Content:  msg.ConsMsg.Content,
+				},
+			})
+		}
+		inst.isReadyToSendCoin()
+		return inst.isReadyToEnterNewRound()
+	}
+	if inst.round == msg.ConsMsg.Round+1 {
+		switch msg.ConsMsg.Content[0] {
+		case 0:
+			if (!inst.hasVotedZero[inst.round] || !inst.hasSentAux[inst.round]) &&
+				inst.numAuxZero[msg.ConsMsg.Round] >= inst.fastgroup &&
+				!inst.promiseOne[inst.round] {
+				inst.hasVotedZero[inst.round] = true
+				inst.tp.Broadcast(&consmsgpb.WholeMessage{
+					ConsMsg: &consmsgpb.ConsMessage{
+						Type:     consmsgpb.MessageType_BVAL,
+						Proposer: msg.ConsMsg.Proposer,
+						Round:    inst.round,
+						Sequence: msg.ConsMsg.Sequence,
+						Content:  []byte{0},
+					},
+				})
+			}
+		case 1:
+			if (!inst.hasVotedOne[inst.round] || !inst.hasSentAux[inst.round]) &&
+				inst.numAuxOne[msg.ConsMsg.Round] >= inst.fastgroup &&
+				!inst.promiseZero[inst.round] {
+				inst.hasVotedOne[inst.round] = true
+				inst.tp.Broadcast(&consmsgpb.WholeMessage{
+					ConsMsg: &consmsgpb.ConsMessage{
+						Type:     consmsgpb.MessageType_BVAL,
+						Proposer: msg.ConsMsg.Proposer,
+						Round:    inst.round,
+						Sequence: msg.ConsMsg.Sequence,
+						Content:  []byte{1},
+					},
+				})
+			}
+		}
+	}
+	if inst.round == msg.ConsMsg.Round {
+		inst.isReadyToSendCoin()
+		return inst.isReadyToEnterNewRound()
 	}
 	return false, false
 }
