@@ -181,15 +181,7 @@ func (inst *instance) insertMsg(msg *consmsgpb.WholeMessage) (bool, bool) {
 	case consmsgpb.MessageType_AUX:
 		return inst.auxHandler(msg)
 	case consmsgpb.MessageType_SKIP:
-		switch msg.ConsMsg.Content[0] {
-		case 0:
-			inst.numZeroSkip[msg.ConsMsg.Round]++
-		case 1:
-			inst.numOneSkip[msg.ConsMsg.Round]++
-		}
-		if inst.round == msg.ConsMsg.Round {
-			return inst.isReadyToEnterNewRound()
-		}
+		return inst.skipHandler(msg)
 	case consmsgpb.MessageType_COIN:
 		inst.coinMsgs[msg.ConsMsg.Round][msg.From] = msg
 		inst.numCoin[msg.ConsMsg.Round]++
@@ -759,6 +751,19 @@ func (inst *instance) auxHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 	}
 	if inst.round == msg.ConsMsg.Round {
 		inst.isReadyToSendCoin()
+		return inst.isReadyToEnterNewRound()
+	}
+	return false, false
+}
+
+func (inst *instance) skipHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
+	switch msg.ConsMsg.Content[0] {
+	case 0:
+		inst.numZeroSkip[msg.ConsMsg.Round]++
+	case 1:
+		inst.numOneSkip[msg.ConsMsg.Round]++
+	}
+	if inst.round == msg.ConsMsg.Round {
 		return inst.isReadyToEnterNewRound()
 	}
 	return false, false
