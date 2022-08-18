@@ -425,13 +425,7 @@ func (inst *instance) bvalHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 		b = true
 	}
 	if b {
-		if !inst.startS[msg.ConsMsg.Round] {
-			inst.startS[msg.ConsMsg.Round] = true
-			go func() {
-				time.Sleep(time.Duration(inst.delta) * time.Millisecond)
-				inst.canSkipCoin[msg.ConsMsg.Round] = false
-			}()
-		}
+		go inst.skipCoin(msg.ConsMsg.Round)
 		return inst.isReadyToEnterNewRound()
 	}
 	if inst.round == msg.ConsMsg.Round+1 {
@@ -700,13 +694,7 @@ func (inst *instance) bvalZeroHandler(msg *consmsgpb.WholeMessage) (bool, bool) 
 			},
 		}
 		inst.tp.Broadcast(m)
-		if !inst.startS[msg.ConsMsg.Round] {
-			inst.startS[msg.ConsMsg.Round] = true
-			go func() {
-				time.Sleep(time.Duration(inst.delta) * time.Millisecond)
-				inst.canSkipCoin[msg.ConsMsg.Round] = false
-			}()
-		}
+		go inst.skipCoin(msg.ConsMsg.Round)
 	}
 	inst.isReadyToSendCoin()
 	return inst.isReadyToEnterNewRound()
@@ -737,13 +725,7 @@ func (inst *instance) bvalOneHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 			},
 		}
 		inst.tp.Broadcast(m)
-		if !inst.startS[msg.ConsMsg.Round] {
-			inst.startS[msg.ConsMsg.Round] = true
-			go func() {
-				time.Sleep(time.Duration(inst.delta) * time.Millisecond)
-				inst.canSkipCoin[msg.ConsMsg.Round] = false
-			}()
-		}
+		go inst.skipCoin(msg.ConsMsg.Round)
 	}
 	inst.isReadyToSendCoin()
 	return inst.isReadyToEnterNewRound()
@@ -795,6 +777,14 @@ func (inst *instance) auxOneHandler(msg *consmsgpb.WholeMessage) (bool, bool) {
 	}
 	inst.isReadyToSendCoin()
 	return inst.isReadyToEnterNewRound()
+}
+
+func (inst *instance) skipCoin(round uint32) {
+	if !inst.startS[round] {
+		inst.startS[round] = true
+		time.Sleep(time.Duration(inst.delta) * time.Millisecond)
+		inst.canSkipCoin[round] = false
+	}
 }
 
 func (inst *instance) isReadyToEnterNewRound() (bool, bool) {
