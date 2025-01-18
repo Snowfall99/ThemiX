@@ -3,9 +3,10 @@ package transport
 import (
 	"crypto/ecdsa"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/transport/http"
 	"go.themix.io/transport/proto/consmsgpb"
-	"go.uber.org/zap"
 )
 
 type Transport interface {

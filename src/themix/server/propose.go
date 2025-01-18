@@ -3,10 +3,11 @@ package server
 import (
 	"sync"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/client/proto/clientpb"
 	"go.themix.io/transport"
 	"go.themix.io/transport/proto/consmsgpb"
-	"go.uber.org/zap"
 )
 
 const channelSize = 4096 * 32

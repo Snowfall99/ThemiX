@@ -1,6 +1,6 @@
 module go.themix.io/transport
 
-go 1.16
+go 1.23.0
 
 require (
 	github.com/perlin-network/noise v1.1.3
@@ -8,6 +8,14 @@ require (
 	go.themix.io/crypto v0.0.0-00010101000000-000000000000
 	go.uber.org/zap v1.16.0
 	google.golang.org/protobuf v1.27.1
+)
+
+require (
+	github.com/golang/protobuf v1.5.0 // indirect
+	github.com/oasislabs/ed25519 v0.0.0-20200302143042-29f6767a7c3e // indirect
+	go.uber.org/atomic v1.6.0 // indirect
+	go.uber.org/multierr v1.5.0 // indirect
+	golang.org/x/crypto v0.0.0-20191119213627-4f8c1d86b1ba // indirect
 )
 
 replace go.themix.io/themix => ../themix

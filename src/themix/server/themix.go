@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"sync"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
 	"go.themix.io/transport/proto/consmsgpb"
-	"go.uber.org/zap"
 )
 
 type asyncCommSubset struct {

@@ -3,7 +3,7 @@ package http
 import (
 	"encoding/gob"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -187,7 +187,7 @@ type ClientMsgProcessor struct {
 func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	v, err := ioutil.ReadAll(r.Body)
+	v, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed on PUT", http.StatusBadRequest)
 		fmt.Println("Failed on PUT", http.StatusBadRequest)

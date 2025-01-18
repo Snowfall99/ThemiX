@@ -3,11 +3,12 @@ package server
 import (
 	"sync"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
 	"go.themix.io/transport/message"
-	"go.uber.org/zap"
 )
 
 var maxbatchsize = 1

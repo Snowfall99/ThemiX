@@ -3,10 +3,11 @@ package server
 import (
 	"sync"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
 	"go.themix.io/transport/message"
-	"go.uber.org/zap"
 )
 
 // Proposer is responsible for proposing requests

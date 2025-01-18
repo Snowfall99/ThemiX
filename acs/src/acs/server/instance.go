@@ -4,12 +4,13 @@ import (
 	"encoding/binary"
 	"sync"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/crypto/bls"
 	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
 	"go.themix.io/transport/message"
-	"go.uber.org/zap"
 )
 
 // the maximum expected round that terminates consensus, P = 1 - pow(0.5, maxround)

@@ -3,10 +3,11 @@ package server
 import (
 	"runtime"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
 	"go.themix.io/transport/info"
-	"go.uber.org/zap"
 )
 
 // Node is a local process

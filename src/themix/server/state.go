@@ -4,10 +4,11 @@ import (
 	"crypto/ecdsa"
 	"sync"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport"
 	"go.themix.io/transport/proto/consmsgpb"
-	"go.uber.org/zap"
 )
 
 type state struct {

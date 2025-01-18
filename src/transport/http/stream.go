@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -14,12 +14,13 @@ import (
 	"time"
 
 	"github.com/perlin-network/noise"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+
 	"go.themix.io/client/proto/clientpb"
 	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport/proto/consmsgpb"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -259,7 +260,7 @@ func (cmsgProcessor *ClientMsgProcessor) run() {
 
 func (cmsgProcessor *ClientMsgProcessor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	v, err := ioutil.ReadAll(r.Body)
+	v, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed on PUT", http.StatusBadRequest)
 		fmt.Println("Failed on PUT", http.StatusBadRequest)

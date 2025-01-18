@@ -2,8 +2,8 @@ package bls
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 	"strconv"
 
@@ -32,7 +32,7 @@ func GenerateBlsKey(keystorePath string, n int, t int) error {
 		if err != nil {
 			return err
 		}
-		err = ioutil.WriteFile(keyFile, bytes, 0600)
+		err = os.WriteFile(keyFile, bytes, 0600)
 		if err != nil {
 			return err
 		}
@@ -45,7 +45,7 @@ func LoadBlsKey(keystorePath string, n int, t int) (*share.PriPoly, *share.PubPo
 	suite := bn256.NewSuite()
 	coeffs := make([]kyber.Scalar, t)
 	for i := 0; i < t; i++ {
-		keyBytes, err := ioutil.ReadFile(filepath.Join(keystorePath, "tbls_sk"+strconv.Itoa(i)))
+		keyBytes, err := os.ReadFile(filepath.Join(keystorePath, "tbls_sk"+strconv.Itoa(i)))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -66,7 +66,7 @@ func InitBLS(keystorePath string, n int, t int, id int) (*BlsSig, error) {
 	suite := bn256.NewSuite()
 	coeffs := make([]kyber.Scalar, t)
 	for i := 0; i < t; i++ {
-		keyBytes, err := ioutil.ReadFile(filepath.Join(keystorePath, "tbls_sk"+strconv.Itoa(i)))
+		keyBytes, err := os.ReadFile(filepath.Join(keystorePath, "tbls_sk"+strconv.Itoa(i)))
 		if err != nil {
 			return nil, err
 		}

@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+
 	"go.themix.io/crypto/bls"
 	myecdsa "go.themix.io/crypto/ecdsa"
 	"go.themix.io/crypto/sha256"
 	"go.themix.io/transport"
 	"go.themix.io/transport/proto/consmsgpb"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
 // the maximum expected round that terminates consensus, P = 1 - pow(0.5, maxround)

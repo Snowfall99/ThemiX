@@ -3,16 +3,17 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	"go.themix.io/acs/server"
 	"go.themix.io/crypto/bls"
 	"go.themix.io/transport/info"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 const CONFIG_FILE = "node.json"
@@ -25,11 +26,6 @@ func newLogger(id int) (*zap.Logger, error) {
 	cfg.Sampling = nil
 	cfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
 	return cfg.Build()
-}
-
-func removeLastRune(s string) string {
-	r := []rune(s)
-	return string(r[:len(r)-1])
 }
 
 type Configuration struct {
@@ -46,16 +42,16 @@ func main() {
 	}
 	defer jsonFile.Close()
 
-	data, err := ioutil.ReadAll(jsonFile)
+	data, err := io.ReadAll(jsonFile)
 	if err != nil {
-		panic(fmt.Sprint("ioutil.ReadAll: ", err))
+		panic(fmt.Sprint("io.ReadAll: ", err))
 	}
 	var config Configuration
 	json.Unmarshal([]byte(data), &config)
 
 	lg, err := newLogger(int(config.Id))
 	if err != nil {
-		panic(fmt.Sprintf("newLogger: ", err))
+		panic(fmt.Sprintf("newLogger: %v", err))
 	}
 	defer lg.Sync()
 

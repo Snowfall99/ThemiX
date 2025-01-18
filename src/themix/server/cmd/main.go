@@ -4,13 +4,14 @@ import (
 	"flag"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"go.themix.io/crypto/bls"
 	"go.themix.io/crypto/ecdsa"
 	"go.themix.io/themix/config"
 	"go.themix.io/themix/logger"
 	"go.themix.io/themix/server"
 	"go.themix.io/transport/http"
-	"go.uber.org/zap"
 )
 
 var DEBUG = flag.Bool("debug", true, "enable debug logging")
