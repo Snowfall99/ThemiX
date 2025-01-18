@@ -1,5 +1,4 @@
 util/
-clientpb/
 .DS_Store
 *.json
 priv_sk
@@ -11,5 +10,6 @@ keys-*/
 __init__.py
 __pycache__/
 main
-client
+output
 .history
+test/client
