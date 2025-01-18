@@ -15,7 +15,7 @@ require (
 	github.com/oasislabs/ed25519 v0.0.0-20200302143042-29f6767a7c3e // indirect
 	go.uber.org/atomic v1.6.0 // indirect
 	go.uber.org/multierr v1.5.0 // indirect
-	golang.org/x/crypto v0.0.0-20191119213627-4f8c1d86b1ba // indirect
+	golang.org/x/crypto v0.31.0 // indirect
 )
 
 replace go.themix.io/themix => ../themix
