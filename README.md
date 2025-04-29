@@ -1,7 +1,7 @@
 # ThemiX
 
 ## Introduction
-This is an implementation of `ThemiX: a novel timing-balanced consensus protocol`.
+This is an implementation of ThemiX protocol in Middleware'23 paper [Bridging the Gap of Timing Assumptions in Byzantine Consensus](https://doi.org/10.1145/3590140.3629114).
 
 ## Content
 ```
